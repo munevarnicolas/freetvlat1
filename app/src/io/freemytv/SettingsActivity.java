@@ -116,7 +116,9 @@ public class SettingsActivity extends Activity {
         private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
-        private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_H = 74, ROW_GAP = 8, CHOICE_H = 104;
+        private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_GAP = 8, CHOICE_H = 104;
+        // The main menu: seven rows, then the comparison, the picks and the notices, all on one 1080 px screen.
+        private static final float MAIN_TOP = 150, ROW_H = 64, MAIN_GAP = 6;
         private static final int AMBER = 0xFFFFC266, INK = 0xFF1C1C1E;
 
         private final SettingsActivity activity;
@@ -254,7 +256,7 @@ public class SettingsActivity extends Activity {
         private RectF rowBox(int row) {
             float top, height;
             if (screen == MAIN) {
-                top = LIST_TOP + row * (ROW_H + ROW_GAP);
+                top = MAIN_TOP + row * (ROW_H + MAIN_GAP);
                 height = ROW_H;
             } else if (screen == HOME_CHOICE) {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
@@ -384,7 +386,7 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Botões do Controle", "Remote Buttons"), Ui.tr("Ajustes da TV", "TV Settings")};
             String[] values = {working ? "" : mode, Ui.tr("Ver agora", "Preview"), "", "", "", "", ""};
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + i * (ROW_H + ROW_GAP)) * k;
+                float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
                 float f = drawRowBackground(c, i);
                 int ink = blend(0xF2FFFFFF, INK, f);
@@ -410,7 +412,7 @@ public class SettingsActivity extends Activity {
                 }
             }
 
-            float y = (LIST_TOP + labels.length * (ROW_H + ROW_GAP) + 20) * k;
+            float y = (MAIN_TOP + labels.length * (ROW_H + MAIN_GAP) + 20) * k;
             String error = state.optString("error");
             if (working && (busyText.contains("Permitir") || busyText.contains("Allow") || busyText.contains("разрешите"))) {
                 c.drawText(Ui.tr("Na TV: marque “Sempre permitir” e aperte OK.", "On the TV: tick “Always allow” and press OK."),
