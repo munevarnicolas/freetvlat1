@@ -116,6 +116,9 @@ final class German {
             case "on the shelf, place ": return "in der Leiste, Platz ";
             case "not on the shelf": return "nicht in der Leiste";
             case "Remote Buttons": return "Fernbedienungstasten";
+            case "Top Buttons": return "Obere Tasten";
+            case "in the top buttons, place ": return "in den oberen Tasten, Platz ";
+            case "not in the top buttons": return "nicht in den oberen Tasten";
             case "Netflix button": return "Netflix-Taste";
             case "YouTube button": return "YouTube-Taste";
             case "Prime Video button": return "Prime-Video-Taste";
@@ -139,6 +142,10 @@ final class German {
                 }
                 if (english.startsWith("OK adds or removes (up to ")) {
                     return "OK fügt hinzu oder entfernt (bis zu " + english.substring("OK adds or removes (up to ".length())
+                            .replace("). ← → change the order.", "). ← → ändern die Reihenfolge.");
+                }
+                if (english.startsWith("OK adds or removes a button (up to ")) {
+                    return "OK fügt eine Taste hinzu oder entfernt sie (bis zu " + english.substring("OK adds or removes a button (up to ".length())
                             .replace("). ← → change the order.", "). ← → ändern die Reihenfolge.");
                 }
                 if (english.endsWith(" min ago")) return "vor " + english.substring(0, english.length() - 8) + " Min.";

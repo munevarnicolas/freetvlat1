@@ -70,6 +70,7 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        Bitmap mark;        // a top button for an app: its symbol or logo (alpha only, drawn in the ink)
     }
 
     /**
@@ -180,6 +181,310 @@ final class HomeApps {
         Collections.sort(more, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
         out.addAll(more);
         return out;
+    }
+
+    // MARK: - Top buttons (the round ones at the top right)
+
+    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    static final int MAX_TOP = 5;
+    /** Largest side, in pixels, of a top button's mark (drawn at up to ~50 px; mipmaps take it down smoothly). */
+    private static final int MARK_PX = 160;
+
+    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
+    static List<String> topButtonKeys() {
+        List<String> keys = Prefs.topButtons();
+        return keys != null ? keys : TOP_DEFAULT;
+    }
+
+    /**
+     * The top buttons, ready to draw: the built-in ones and the apps that are still installed. `extract`: also lifts
+     * the logos that are not on disk yet (slow: background only); without it, those apps show their initials until the
+     * next load.
+     */
+    static List<Item> topButtons(Context c, boolean extract) {
+        PackageManager pm = c.getPackageManager();
+        List<Item> items = new ArrayList<>();
+        for (String key : topButtonKeys()) {
+            if (items.size() >= MAX_TOP) break;
+            Item builtIn = topBuiltIn(key);
+            if (builtIn != null) {
+                items.add(builtIn);
+                continue;
+            }
+            Intent launch = launchIntent(pm, key);
+            if (launch == null) continue;   // uninstalled since it was picked
+            ResolveInfo ri = pm.resolveActivity(launch, 0);
+            Item it = app(key, ri != null ? String.valueOf(ri.loadLabel(pm)) : key);
+            topMark(c, it, extract);
+            items.add(it);
+        }
+        return items;
+    }
+
+    private static Item topBuiltIn(String key) {
+        switch (key) {
+            case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("TV aberta", "Live TV"), "live_tv");
+            case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi");
+            case TOP_SETTINGS: return action(SETTINGS, TOP_SETTINGS, Ui.tr("Configurações", "Settings"), "settings");
+            default: return null;
+        }
+    }
+
+    /** What can go in the top buttons, as {key, name}: the built-in ones first, then the apps (as for the shelf). */
+    static List<String[]> topCandidates(Context c) {
+        List<String[]> out = new ArrayList<>();
+        for (String key : TOP_DEFAULT) out.add(new String[] {key, topBuiltIn(key).label});
+        out.addAll(shelfCandidates(c));
+        return out;
+    }
+
+    /** Logos wider than this (width / height) are wordmarks, not symbols. */
+    private static final float MARK_MAX_ASPECT = 2.2f;
+
+    // Masks made once per process, by logo (the logos themselves are cached in LOGOS).
+    private static final Map<Bitmap, Bitmap> LOGO_MARKS = new java.util.IdentityHashMap<>();
+
+    /**
+     * An app in a round button is drawn in one ink, like the built-in symbols: the symbol in its icon (lifted off the
+     * icon's plate), else the logo the shelf lifts from its TV art, else its initials. Never its colored icon (on
+     * glass, next to the symbols, most TV apps' icons are white squares).
+     */
+    private static void topMark(Context c, Item it, boolean extract) {
+        String[] d = known(it.pkg);
+        Bitmap icon = mark(topGlyph(c, it.pkg, extract));
+        Bitmap art = mark(d != null ? shelfLogo(c, d[0], d[2], d[4], extract) : shelfLogo(c, it.pkg, it.pkg, "", extract));
+        // A symbol reads best in a circle (YouTube's play button, Plex's chevron), the icon's before the TV art's; with
+        // none, the brand's words in the same ink ("NETFLIX", "prime video"), drawn wider.
+        it.mark = symbol(icon) ? icon : symbol(art) ? art : icon != null ? icon : art;
+    }
+
+    /** The logo's mask, made once (null for no logo). */
+    private static Bitmap mark(Bitmap logo) {
+        if (logo == null) return null;
+        synchronized (LOGO_MARKS) {
+            if (!LOGO_MARKS.containsKey(logo)) LOGO_MARKS.put(logo, logoMark(logo));
+            return LOGO_MARKS.get(logo);
+        }
+    }
+
+    /** Whether a mask is a symbol, not words: not too wide, and not words(). */
+    private static boolean symbol(Bitmap m) {
+        return m != null && m.getWidth() <= m.getHeight() * MARK_MAX_ASPECT && !words(m);
+    }
+
+    /**
+     * Whether a mask reads as words rather than a symbol: at the size it's drawn (about 48 × 32 px), seven or more
+     * separate pieces of different sizes are letters ("prime video", "MEDIASET infinity"); a symbol is one to a few
+     * (YouTube's play button), or a pattern of alike pieces (Tailscale's dots).
+     */
+    private static boolean words(Bitmap mask) {
+        float scale = Math.min(48f / mask.getWidth(), 32f / mask.getHeight());
+        int w = Math.max(1, Math.round(mask.getWidth() * scale)), h = Math.max(1, Math.round(mask.getHeight() * scale));
+        Bitmap small = Bitmap.createScaledBitmap(mask.copy(Bitmap.Config.ARGB_8888, false), w, h, true);
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        small.recycle();
+        boolean[] ink = new boolean[w * h];
+        for (int i = 0; i < px.length; i++) ink[i] = (px[i] >>> 24) > 128;
+        List<Integer> sizes = new ArrayList<>();
+        int[] stack = new int[w * h];
+        for (int i = 0; i < ink.length; i++) {
+            if (!ink[i]) continue;
+            int top = 0, size = 0;
+            stack[top++] = i;
+            ink[i] = false;
+            while (top > 0) {
+                size++;
+                int j = stack[--top], x = j % w, y = j / w;
+                if (x > 0 && ink[j - 1]) { ink[j - 1] = false; stack[top++] = j - 1; }
+                if (x < w - 1 && ink[j + 1]) { ink[j + 1] = false; stack[top++] = j + 1; }
+                if (y > 0 && ink[j - w]) { ink[j - w] = false; stack[top++] = j - w; }
+                if (y < h - 1 && ink[j + w]) { ink[j + w] = false; stack[top++] = j + w; }
+            }
+            if (size > 2) sizes.add(size);   // a stray pixel of antialiasing isn't a piece
+        }
+        if (sizes.size() < 7) return false;
+        Collections.sort(sizes, Collections.reverseOrder());
+        return sizes.get(6) < sizes.get(0) * 0.6f;
+    }
+
+    /** The symbol lifted from the app's icon (see iconGlyph), kept on disk like the shelf's logos. */
+    private static Bitmap topGlyph(Context c, String pkg, boolean extract) {
+        String key = "icon-" + pkg;
+        synchronized (LOGOS) {
+            if (LOGOS.containsKey(key)) return LOGOS.get(key);
+        }
+        File file = logoFile(c, key, pkg), none = new File(file.getPath() + ".none");
+        Bitmap glyph = null;
+        if (file.exists()) {
+            glyph = BitmapFactory.decodeFile(file.getPath());
+        } else if (!none.exists()) {
+            if (!extract) return null;
+            glyph = iconGlyph(c, pkg);
+            saveLogo(glyph, file, none);
+        }
+        synchronized (LOGOS) {
+            LOGOS.put(key, glyph);
+        }
+        return glyph;
+    }
+
+    /** Side of the square an app's icon is drawn on to lift its symbol. */
+    private static final int GLYPH_PX = 256;
+
+    /**
+     * The symbol inside an app's icon, without the plate around it: the themed (monochrome) layer when the app has one
+     * (Android 13+); a free-form icon as it is; otherwise the plate is lifted like a banner's background (a colored
+     * symbol keeps its white inside, for logoMark to cut). null when nothing splits (a photo, a full-bleed picture).
+     */
+    private static Bitmap iconGlyph(Context c, String pkg) {
+        Drawable icon = appIcon(c, pkg);
+        if (icon == null) return null;
+        final int s = GLYPH_PX;
+        int pad = 0;
+        Drawable[] layers = {icon};
+        if (icon instanceof AdaptiveIconDrawable) {
+            AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
+            pad = s / 4;   // the layers are 108 dp, the icon shows the middle 72
+            Drawable mono = android.os.Build.VERSION.SDK_INT >= 33 ? a.getMonochrome() : null;
+            if (mono != null) return trimmed(draw(new Drawable[] {mono}, s, pad, 0), 1f);   // the app's own one-ink symbol
+            layers = new Drawable[] {a.getBackground(), a.getForeground()};
+        }
+        Bitmap b = draw(layers, s, pad, 0);
+        int plate = plateColor(b);
+        if (plate == 0) {
+            Bitmap t = trimmed(b, 1f);
+            if (t == null || !squarePlate(t)) return t;   // no plate: a free-form icon is its own symbol
+            // A plate drawn smaller, with a margin around it: lift the symbol off it all the same.
+            b = Bitmap.createScaledBitmap(t, s, s, true);
+            plate = plateColor(b);
+            if (plate == 0) return t;
+        }
+        Bitmap flat = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(flat);
+        canvas.drawColor(plate);
+        canvas.drawBitmap(b, 0, 0, null);
+        b.recycle();
+        // Busy art that won't split cleanly still comes out in black and white: what differs from the plate is ink.
+        return lift(flat, false, false, true);
+    }
+
+    /** The color of the icon's plate: its opaque pixels on a ring inside the square (clear of rounded corners); 0 for none. */
+    private static int plateColor(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        float[] sum = new float[3];
+        int ring = 0, solid = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                float r = (float) Math.hypot((x - w / 2f) / w, (y - h / 2f) / h);
+                if (r < 0.40f || r > 0.46f) continue;
+                ring++;
+                int p = px[y * w + x];
+                if ((p >>> 24) < 250) continue;
+                solid++;
+                add(sum, p, 1f);
+            }
+        }
+        if (solid < ring * 0.6f) return 0;
+        return 0xFF000000 | Math.round(sum[0] / solid * 255) << 16 | Math.round(sum[1] / solid * 255) << 8 | Math.round(sum[2] / solid * 255);
+    }
+
+    /** Whether a trimmed shape is a (rounded) square filled to its edges: a plate, not a symbol. */
+    private static boolean squarePlate(Bitmap t) {
+        int w = t.getWidth(), h = t.getHeight();
+        if (w < h * 0.85f || w > h * 1.18f) return false;
+        int[] px = new int[w * h];
+        t.getPixels(px, 0, w, 0, 0, w, h);
+        int ink = 0;
+        for (int p : px) if ((p >>> 24) > 128) ink++;
+        return ink >= px.length * 0.85f;
+    }
+
+    /** The layers drawn on an s × s square (`pad` past each side), over `bg` (0: transparent). */
+    private static Bitmap draw(Drawable[] layers, int s, int pad, int bg) {
+        Bitmap b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(b);
+        if (bg != 0) canvas.drawColor(bg);
+        for (Drawable layer : layers) {
+            if (layer == null) continue;
+            layer.setBounds(-pad, -pad, s + pad, s + pad);
+            layer.draw(canvas);
+        }
+        return b;
+    }
+
+    /** `b` cut to its ink, or null when it has almost none or more than `most` of the square. */
+    private static Bitmap trimmed(Bitmap b, float most) {
+        Bitmap t = trim(b);
+        int w = t.getWidth(), h = t.getHeight();
+        int[] px = new int[w * h];
+        t.getPixels(px, 0, w, 0, 0, w, h);
+        int ink = 0;
+        for (int p : px) if ((p >>> 24) > 128) ink++;
+        float area = (float) ink / (b.getWidth() * b.getHeight());
+        return area < 0.01f || area > most ? null : t;
+    }
+
+    /**
+     * The logo's alpha as a mask, at most MARK_PX on its longer side. A colored logo with white inside (YouTube's play
+     * triangle) gets the white cut out, and a white one with a few colored details (Mitele's dots) the details, so the
+     * shape still reads in one ink. null when nothing is left.
+     */
+    private static Bitmap logoMark(Bitmap logo) {
+        float scale = Math.min(1f, (float) MARK_PX / Math.max(logo.getWidth(), logo.getHeight()));
+        int w = Math.max(1, Math.round(logo.getWidth() * scale)), h = Math.max(1, Math.round(logo.getHeight() * scale));
+        Bitmap small = scale < 1f ? Bitmap.createScaledBitmap(logo, w, h, true) : logo;
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        if (small != logo) small.recycle();
+        int solid = 0, colored = 0, white = 0;
+        for (int p : px) {
+            if ((p >>> 24) < 128) continue;
+            int r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+            solid++;
+            if (min > 200 && max - min < 40) white++;
+            else if (max - min > 90) colored++;
+        }
+        int inked = 0;
+        boolean cut = solid > 0 && colored > solid * 0.25f && white > solid * 0.02f && white < solid * 0.6f;
+        boolean cutColor = solid > 0 && white > solid * 0.5f && colored > solid * 0.02f && colored < solid * 0.4f;
+        for (int i = 0; i < px.length; i++) {
+            float a = (px[i] >>> 24) / 255f;
+            if ((cut || cutColor) && a > 0) {
+                int p = px[i], r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+                int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+                a *= cut ? 1 - smoothstep(170, 225, min) : 1 - smoothstep(50, 100, max - min);
+            }
+            a = smoothstep(0.12f, 0.3f, a) * a;   // traces of the background left by lifting: no faint box around the logo
+            px[i] = Math.round(a * 255) << 24 | 0xFFFFFF;
+            if (a > 0.5f) inked++;
+        }
+        if (inked < px.length * 0.01f) return null;
+        Bitmap mask = trim(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)).extractAlpha();
+        mask.setHasMipMap(true);
+        return mask;
+    }
+
+    /** The app's icon at the highest density it has (TV launchers often ship only a blurry low-density one). */
+    private static Drawable appIcon(Context c, String pkg) {
+        try {
+            PackageManager pm = c.getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            Drawable icon = null;
+            if (ai.icon != 0) {
+                try {
+                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
+                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+                }
+            }
+            return icon != null ? icon : pm.getApplicationIcon(ai);
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
     }
 
     /** Live TV, the HDMI inputs with a device sending a signal, and All Apps. */
@@ -529,6 +834,12 @@ final class HomeApps {
         canvas.drawColor(0xFF15161C);
         d.setBounds(0, 0, w, h);
         d.draw(canvas);
+        return lift(src, tint, holes, false);
+    }
+
+    /** The logo drawn on `src` (recycled) without its background, as bannerLogo describes; null when it won't split. */
+    private static Bitmap lift(Bitmap src, boolean tint, boolean holes, boolean any) {
+        final int w = src.getWidth(), h = src.getHeight();
         int[] px = new int[w * h];
         src.getPixels(px, 0, w, 0, 0, w, h);
         src.recycle();
@@ -547,10 +858,10 @@ final class HomeApps {
                 add(bottom[x], px[(h - 1 - y) * w + x], 1f / band);
             }
         }
-        smooth(left, 25);
-        smooth(right, 25);
-        smooth(top, 41);
-        smooth(bottom, 41);
+        smooth(left, h * 25 / 432 | 1);
+        smooth(right, h * 25 / 432 | 1);
+        smooth(top, w * 41 / 768 | 1);
+        smooth(bottom, w * 41 / 768 | 1);
         float[] p00 = top[0], p10 = top[w - 1], p01 = bottom[0], p11 = bottom[w - 1];
         float[] mean = new float[3];
         for (int i = 0; i < 3; i++) mean[i] = (p00[i] + p10[i] + p01[i] + p11[i] + top[w / 2][i] + bottom[w / 2][i] + left[h / 2][i] + right[h / 2][i]) / 8;
@@ -586,7 +897,7 @@ final class HomeApps {
             }
         }
         float area = (float) opaque / (w * h);
-        if (area < 0.01f || area > 0.6f) return null;    // couldn't split the logo from the background: keep the card
+        if (area < 0.01f || !any && area > 0.6f) return null;    // couldn't split the logo from the background: keep the card
         if (holes) fillHoles(out, w, h);
         Bitmap logo = Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888);
         return trimLogo(logo);
@@ -767,19 +1078,7 @@ final class HomeApps {
     private static Bitmap iconTile(Context c, String pkg) {
         Bitmap b = darkTile();
         Canvas canvas = new Canvas(b);
-        Drawable icon = null;
-        try {
-            PackageManager pm = c.getPackageManager();
-            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-            if (ai.icon != 0) {
-                try {
-                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
-                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
-                }
-            }
-            if (icon == null) icon = pm.getApplicationIcon(ai);
-        } catch (PackageManager.NameNotFoundException ignored) {
-        }
+        Drawable icon = appIcon(c, pkg);
         if (icon == null) return b;
         int size = Math.round(TILE_H * 0.56f);
         float left = (TILE_W - size) / 2f, top = (TILE_H - size) / 2f;
