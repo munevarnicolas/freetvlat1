@@ -42,16 +42,19 @@ final class Ui {
         if (loaded) return;
         loaded = true;
         AssetManager a = c.getAssets();
-        thin = font(a, 32, 200);
-        light = font(a, 32, 300);
-        displayMedium = font(a, 32, 500);
-        displaySemibold = font(a, 32, 600);
-        regular = font(a, 14, 400);
-        medium = font(a, 14, 500);
-        semibold = font(a, 14, 600);
+        thin = font(a, 32, 300);
+        light = font(a, 32, 400);
+        displayMedium = font(a, 32, 600);
+        displaySemibold = font(a, 32, 700);
+        regular = font(a, 14, 500);
+        medium = font(a, 14, 600);
+        semibold = font(a, 14, 700);
     }
 
-    /** Inter at an optical size (14 = text, 32 = display) and weight; the system font if the file is missing. */
+    /**
+     * Nunito at a weight (its rounded stroke ends read softer on a TV than Inter's sharp corners; it has no optical
+     * sizes, so 'opsz' is ignored); the system font if the file is missing.
+     */
     private static Typeface font(AssetManager a, int opticalSize, int weight) {
         if (has(a, FONT)) {
             try {
@@ -64,7 +67,7 @@ final class Ui {
         return Typeface.create(Typeface.DEFAULT, weight, false);
     }
 
-    private static final String FONT = "fonts/InterVariable.ttf";
+    private static final String FONT = "fonts/Nunito.ttf";
 
     /** "pt", "es", "de", "ru" or "en": the one picked (TV settings or config.properties), or with "auto" the TV's own, else English. */
     private static String language() {

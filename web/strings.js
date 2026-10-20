@@ -133,8 +133,6 @@ var I18N = (function () {
     if (Object.prototype.hasOwnProperty.call(russian, en)) return russian[en];
     var m = /^(\d+) (min|h) ago$/.exec(en);
     if (m) return m[1] + (m[2] === 'min' ? ' мин назад' : ' ч назад');
-    m = /^The shelf holds up to (\d+) apps\.$/.exec(en);
-    if (m) return 'В избранное можно добавить не более ' + m[1] + ' приложений.';
     return en;
   }
 

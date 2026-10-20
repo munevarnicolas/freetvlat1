@@ -57,6 +57,10 @@ final class HomeApps {
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
+    /** The "Bluetooth" button: the TV's remotes and accessories page, or its Bluetooth settings (see bluetooth()). */
+    static final int BLUETOOTH = 8;
+    /** The "Theme" button: Automatic → Light → Dark (the home screen handles it). */
+    static final int THEME = 9;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -67,13 +71,16 @@ final class HomeApps {
         Bitmap tile;        // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
         Bitmap logoDark;    // version for a light background (YouTube's white icon), if any
+        Bitmap banner;      // the app's own TV banner, shown in the dark look (OWN_BANNER)
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        Bitmap mark;        // a top button for an app: its logo's silhouette, or its initials (alpha only, drawn in the ink)
+        boolean markLetters; // the mark is the initials (no logo): drawn a little smaller
     }
 
     /**
-     * Apps on the home shelf, in this order, when installed (up to MAX_SHELF): key, name, package, brand color (for
+     * Apps on the home shelf, in this order, when installed: key, name, package, brand color (for
      * its logo on glass) and how to lift the logo from the app's TV art: "tint" = a white logo takes the art's
      * background color (Prime Video, Globoplay); "play" = the white triangle inside the red button stays white
      * (YouTube); empty = the art's colors as they are. Last, a visual size tweak for the logo. Edit freely.
@@ -91,7 +98,6 @@ final class HomeApps {
         {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
         {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
     };
-    static final int MAX_SHELF = 8;
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
     static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */
@@ -122,7 +128,6 @@ final class HomeApps {
         List<Item> items = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
         for (String pkg : shelfPackages(c)) {
-            if (items.size() >= MAX_SHELF) break;
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
             ResolveInfo ri = pm.resolveActivity(launch, 0);
@@ -138,6 +143,7 @@ final class HomeApps {
             } else {
                 it.key = d[0];
                 it.label = d[1];
+                if (OWN_BANNER.contains(d[0])) it.banner = ownBanner(c, d[2]);
                 it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
                 if (it.logo == null) it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
                 if (it.logo != null) it.logoInk = ink(it.logo);
@@ -160,7 +166,7 @@ final class HomeApps {
         if (custom != null) return custom;
         List<String> out = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
-        for (String[] d : SHELF) if (out.size() < MAX_SHELF && launchIntent(pm, d[2]) != null) out.add(d[2]);
+        for (String[] d : SHELF) if (launchIntent(pm, d[2]) != null) out.add(d[2]);
         return out;
     }
 
@@ -180,6 +186,170 @@ final class HomeApps {
         Collections.sort(more, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
         out.addAll(more);
         return out;
+    }
+
+    // MARK: - Top buttons (the round ones at the top right)
+
+    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_BLUETOOTH = "bluetooth", TOP_THEME = "theme";
+    /** From the corner leftward (the first one sits at the right edge): Settings, HDMI Inputs, Live TV, as before. */
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_SETTINGS, TOP_INPUTS, TOP_LIVE));
+    static final int MAX_TOP = 5;
+    /** Largest side, in pixels, of a top button's mark (drawn at up to ~50 px; mipmaps take it down smoothly). */
+    private static final int MARK_PX = 160;
+
+    /** The keys of the top buttons, from the corner leftward (Settings > Top Buttons; TOP_DEFAULT until edited). */
+    static List<String> topButtonKeys() {
+        List<String> keys = Prefs.topButtons();
+        return keys != null ? keys : TOP_DEFAULT;
+    }
+
+    /** The top buttons, ready to draw (`extract` is unused now that they're all built in; kept for the callers). */
+    static List<Item> topButtons(Context c, boolean extract) {
+        List<Item> items = new ArrayList<>();
+        for (String key : topButtonKeys()) {
+            if (items.size() >= MAX_TOP) break;
+            // Only the built-in buttons: the apps belong on the shelf (an app picked by an older version is skipped).
+            Item builtIn = topBuiltIn(key);
+            if (builtIn != null) items.add(builtIn);
+        }
+        return items;
+    }
+
+    private static Item topBuiltIn(String key) {
+        switch (key) {
+            case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("TV aberta", "Live TV"), "live_tv");
+            case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi");
+            case TOP_SETTINGS: return action(SETTINGS, TOP_SETTINGS, Ui.tr("Configurações", "Settings"), "settings");
+            case TOP_BLUETOOTH: return action(BLUETOOTH, TOP_BLUETOOTH, "Bluetooth", "bluetooth");
+            case TOP_THEME: return action(THEME, TOP_THEME, Ui.tr("Tema", "Theme"), "theme");
+            default: return null;
+        }
+    }
+
+    /** What can go in the top buttons, as {key, name}: the built-in ones (apps go on the shelf). */
+    static List<String[]> topCandidates(Context c) {
+        List<String[]> out = new ArrayList<>();
+        for (String key : new String[] {TOP_SETTINGS, TOP_INPUTS, TOP_LIVE, TOP_BLUETOOTH, TOP_THEME}) {
+            if (!key.equals(TOP_BLUETOOTH) || bluetooth(c) != null) out.add(new String[] {key, topBuiltIn(key).label});
+        }
+        return out;
+    }
+
+    /** Wider logos than this (width / height) are wordmarks: the button shows the initials instead. */
+    private static final float MARK_MAX_ASPECT = 2.2f;
+
+    // Masks made once per process: by logo (the logos themselves are cached in LOGOS) and by initials.
+    private static final Map<Bitmap, Bitmap> LOGO_MARKS = new java.util.IdentityHashMap<>();
+    private static final Map<String, Bitmap> LETTER_MARKS = new HashMap<>();
+
+    /**
+     * An app in a round button is drawn in one ink, like the built-in symbols: the silhouette of the logo the shelf
+     * lifts from its TV art or, without one, its initials. Never its colored icon (on glass, next to the symbols, most
+     * TV apps' icons are white squares).
+     */
+    private static void topMark(Context c, Item it, boolean extract) {
+        String[] d = known(it.pkg);
+        Bitmap logo = d != null ? shelfLogo(c, d[0], d[2], d[4], extract) : shelfLogo(c, it.pkg, it.pkg, "", extract);
+        if (logo != null) {
+            synchronized (LOGO_MARKS) {
+                if (!LOGO_MARKS.containsKey(logo)) LOGO_MARKS.put(logo, logoMark(logo));
+                it.mark = LOGO_MARKS.get(logo);
+            }
+            // A wordmark ("NETFLIX", "▶ YouTube") can't be read inside a 68 px circle: its initials read better.
+            if (it.mark != null && it.mark.getWidth() > it.mark.getHeight() * MARK_MAX_ASPECT) it.mark = null;
+        }
+        if (it.mark == null) {
+            String letters = initials(d != null ? d[1] : it.label);
+            synchronized (LETTER_MARKS) {
+                Bitmap m = LETTER_MARKS.get(letters);
+                if (m == null) {
+                    m = letterMark(letters);
+                    LETTER_MARKS.put(letters, m);
+                }
+                it.mark = m;
+            }
+            it.markLetters = true;
+        }
+    }
+
+    /**
+     * The logo's alpha as a mask, at most MARK_PX on its longer side. A colored logo with white inside (YouTube's play
+     * triangle) gets the white cut out, so the shape still reads in one ink. null when nothing is left.
+     */
+    private static Bitmap logoMark(Bitmap logo) {
+        float scale = Math.min(1f, (float) MARK_PX / Math.max(logo.getWidth(), logo.getHeight()));
+        int w = Math.max(1, Math.round(logo.getWidth() * scale)), h = Math.max(1, Math.round(logo.getHeight() * scale));
+        Bitmap small = scale < 1f ? Bitmap.createScaledBitmap(logo, w, h, true) : logo;
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        if (small != logo) small.recycle();
+        int solid = 0, colored = 0, white = 0;
+        for (int p : px) {
+            if ((p >>> 24) < 128) continue;
+            int r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+            solid++;
+            if (min > 200 && max - min < 40) white++;
+            else if (max - min > 90) colored++;
+        }
+        int inked = 0;
+        boolean cut = solid > 0 && colored > solid * 0.25f && white > solid * 0.02f && white < solid * 0.6f;
+        for (int i = 0; i < px.length; i++) {
+            float a = (px[i] >>> 24) / 255f;
+            if (cut && a > 0) {
+                int p = px[i], r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+                a *= 1 - smoothstep(170, 225, Math.min(r, Math.min(g, b)));
+            }
+            px[i] = Math.round(a * 255) << 24 | 0xFFFFFF;
+            if (a > 0.5f) inked++;
+        }
+        if (inked < px.length * 0.01f) return null;
+        Bitmap mask = trim(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)).extractAlpha();
+        mask.setHasMipMap(true);
+        return mask;
+    }
+
+    /** One or two letters for an app with no logo: "Pluto TV" → "PT", "Kodi" → "K". */
+    static String initials(String name) {
+        StringBuilder sb = new StringBuilder();
+        for (String word : name.trim().split("\\s+")) {
+            if (word.isEmpty() || sb.length() >= 2) continue;
+            int cp = word.codePointAt(0);
+            if (Character.isLetterOrDigit(cp)) sb.appendCodePoint(Character.toUpperCase(cp));
+        }
+        return sb.length() > 0 ? sb.toString() : "?";
+    }
+
+    /** The initials in the UI font, cut tight to the letters, as a mask. */
+    private static Bitmap letterMark(String letters) {
+        Paint p = Ui.text(Ui.semibold, MARK_PX * 0.8f, 0xFFFFFFFF);
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        p.getTextBounds(letters, 0, letters.length(), bounds);
+        int w = Math.max(1, bounds.width() + 4), h = Math.max(1, bounds.height() + 4);
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        new Canvas(b).drawText(letters, 2 - bounds.left, 2 - bounds.top, p);
+        Bitmap mask = b.extractAlpha();
+        b.recycle();
+        mask.setHasMipMap(true);
+        return mask;
+    }
+
+    /** The app's icon at the highest density it has (TV launchers often ship only a blurry low-density one). */
+    private static Drawable appIcon(Context c, String pkg) {
+        try {
+            PackageManager pm = c.getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            Drawable icon = null;
+            if (ai.icon != 0) {
+                try {
+                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
+                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+                }
+            }
+            return icon != null ? icon : pm.getApplicationIcon(ai);
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
     }
 
     /** Live TV, the HDMI inputs with a device sending a signal, and All Apps. */
@@ -320,13 +490,13 @@ final class HomeApps {
         return "hdmi";
     }
 
-    /** Installed, enabled TV apps that are not on the home screen (the TV's Settings is among them), plus our own. */
+    /**
+     * Every installed, enabled TV app (the TV's Settings among them, the shelf's too: All Apps is the full list; it used
+     * to leave out the built-in SHELF apps, so YouTube was missing), plus our own settings.
+     */
     static List<Item> others(Context c) {
         PackageManager pm = c.getPackageManager();
         Set<String> skip = new HashSet<>();
-        // A built-in app is skipped only while it is on the shelf: one the person took off must still be listed here.
-        List<String> onShelf = shelfPackages(c);
-        for (String[] d : SHELF) if (onShelf.contains(d[2])) skip.add(d[2]);
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
@@ -378,6 +548,13 @@ final class HomeApps {
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);
                 break;
+            case BLUETOOTH:
+                intent = bluetooth(a);
+                if (intent != null && SLICE_SETTINGS.equals(intent.getAction())) {
+                    HomeMode.openAccessories(a);
+                    return true;
+                }
+                break;
             default:
                 return false;
         }
@@ -390,6 +567,28 @@ final class HomeApps {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());
             return false;
         }
+    }
+
+    /** TV Settings' slice behind Settings → Remotes & Accessories (Android TV 12+, Google TV). */
+    static final String ACCESSORIES_SLICES = "com.android.tv.settings.accessories.sliceprovider";
+    static final String SLICE_SETTINGS = "android.settings.SLICE_SETTINGS";
+
+    /**
+     * Bluetooth: Android TV and Google TV have no Bluetooth settings screen (ACTION_BLUETOOTH_SETTINGS resolves to
+     * nothing there). Their Remotes & Accessories page, with the paired devices and "Pair accessory", is a slice that
+     * TV Settings' SliceActivity shows, only to callers with WRITE_SECURE_SETTINGS: open() asks the TV's ADB to start it
+     * (HomeMode.openAccessories). Its pairing search, CONNECT_INPUT, needs BLUETOOTH_CONNECT, so it's no way around.
+     * Other devices get the standard Bluetooth settings. Null with neither.
+     */
+    static Intent bluetooth(Context c) {
+        PackageManager pm = c.getPackageManager();
+        if (pm.resolveContentProvider(ACCESSORIES_SLICES, 0) != null) {
+            Intent page = new Intent(SLICE_SETTINGS)
+                    .putExtra("slice_uri", "content://" + ACCESSORIES_SLICES + "/general");
+            if (page.resolveActivity(pm) != null) return page;
+        }
+        Intent settings = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
+        return settings.resolveActivity(pm) != null ? settings : null;
     }
 
     /**
@@ -741,6 +940,23 @@ final class HomeApps {
     }
 
     /** The app's official TV art (the Android TV banner), at the highest density the app has. */
+    /**
+     * Apps whose shelf tile is their own TV banner in the dark look, as the app ships it: YouTube's (red button, dark
+     * wordmark on light gray) reads as YouTube there. On the light glass it vanishes, so the light look keeps the logo
+     * on a dark card.
+     */
+    private static final Set<String> OWN_BANNER = Collections.singleton("youtube");
+
+    private static synchronized Bitmap ownBanner(Context c, String pkg) {
+        String key = "banner:" + pkg;
+        if (!TILES.containsKey(key)) {
+            Bitmap b = bannerTile(c, pkg);
+            if (b != null) b.setHasMipMap(true);
+            TILES.put(key, b);
+        }
+        return TILES.get(key);
+    }
+
     private static Bitmap bannerTile(Context c, String pkg) {
         PackageManager pm = c.getPackageManager();
         Drawable d = null;
@@ -767,19 +983,7 @@ final class HomeApps {
     private static Bitmap iconTile(Context c, String pkg) {
         Bitmap b = darkTile();
         Canvas canvas = new Canvas(b);
-        Drawable icon = null;
-        try {
-            PackageManager pm = c.getPackageManager();
-            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-            if (ai.icon != 0) {
-                try {
-                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
-                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
-                }
-            }
-            if (icon == null) icon = pm.getApplicationIcon(ai);
-        } catch (PackageManager.NameNotFoundException ignored) {
-        }
+        Drawable icon = appIcon(c, pkg);
         if (icon == null) return b;
         int size = Math.round(TILE_H * 0.56f);
         float left = (TILE_W - size) / 2f, top = (TILE_H - size) / 2f;

@@ -23,7 +23,6 @@ final class Spanish {
             case "For You": return "Para ti";
             case "Couldn't open ": return "No se pudo abrir ";
             case " of ": return " de ";
-            case "← → to move · OK to drop · Back to cancel": return "← → para mover · OK para soltar · Atrás para cancelar";
             case ", tab ": return ", pestaña ";
             case " of 3": return " de 3";
             case "Dollar": return "Dólar";
@@ -108,6 +107,9 @@ final class Spanish {
             case "on the shelf, place ": return "en el estante, posición ";
             case "not on the shelf": return "fuera del estante";
             case "Remote Buttons": return "Botones del control";
+            case "Top Buttons": return "Botones de arriba";
+            case "in the top buttons, place ": return "en los botones de arriba, posición ";
+            case "not in the top buttons": return "fuera de los botones de arriba";
             case "Netflix button": return "Botón Netflix";
             case "YouTube button": return "Botón YouTube";
             case "Prime Video button": return "Botón Prime Video";

@@ -74,7 +74,8 @@
     ['globoplay', /globoplay/, /globoplay/i, ['#FF8A1F', '#FF2D5A']],
     ['spotify', /spotify/, /spotify/i, ['#1DB954', '#0F7A36']]
   ];
-  var MAX_SHELF = 8;
+  // More apps than SHELF_VISIBLE: the shelf scrolls, seven 190 px tiles under glass that spans the content width.
+  var SHELF_VISIBLE = 7, CAROUSEL_TILE_W = 190;
 
   function shelfKey(app) {
     for (var i = 0; i < SHELF.length; i++) if (SHELF[i][1].test(app.id) || SHELF[i][2].test(app.title)) return SHELF[i];
@@ -115,16 +116,16 @@
   function pickShelf() {
     var chosen = Prefs.shelf(), out = [];
     if (chosen) {
-      for (var i = 0; i < chosen.length && out.length < MAX_SHELF; i++) {
+      for (var i = 0; i < chosen.length; i++) {
         for (var j = 0; j < apps.length; j++) if (apps[j].id === chosen[i]) out.push(apps[j]);
       }
     } else {
-      for (var s = 0; s < SHELF.length && out.length < MAX_SHELF; s++) {
+      for (var s = 0; s < SHELF.length; s++) {
         for (var a = 0; a < apps.length; a++) {
           if ((SHELF[s][1].test(apps[a].id) || SHELF[s][2].test(apps[a].title)) && out.indexOf(apps[a]) < 0) { out.push(apps[a]); break; }
         }
       }
-      if (!out.length) out = apps.slice(0, MAX_SHELF);
+      if (!out.length) out = apps.slice(0, SHELF_VISIBLE);
     }
     shelf = out;
     others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
@@ -152,6 +153,7 @@
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
+    scrollShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
     list = document.querySelectorAll('#apps .cell');
@@ -287,15 +289,19 @@
 
   // MARK: - Shelf
 
+  var shelfFirst = 0, shelfStep = 0;
+
   function renderShelf() {
-    var n = shelf.length, gap = 48, pad = 40;
-    var tw = Math.min(270, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n));
-    var width = n * tw + Math.max(0, n - 1) * gap, left = (1920 - width) / 2;
+    var n = shelf.length, gap = 48, pad = 40, carousel = n > SHELF_VISIBLE, shown = Math.min(n, SHELF_VISIBLE);
+    var tw = carousel ? CAROUSEL_TILE_W : Math.min(270, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n));
+    var width = shown * tw + Math.max(0, shown - 1) * gap, left = (1920 - width) / 2;
     var platter = $('platter');
     platter.style.display = n ? '' : 'none';
-    platter.style.left = (left - pad) + 'px';
-    platter.style.width = (width + 2 * pad) + 'px';
-    $('quotes').style.right = (1920 - left - width) + 'px';
+    platter.style.left = (carousel ? 80 - pad : left - pad) + 'px';
+    platter.style.width = (carousel ? 1760 + 2 * pad : width + 2 * pad) + 'px';
+    $('quotes').style.right = (carousel ? 80 : 1920 - left - width) + 'px';
+    $('shelf').style.clip = carousel ? 'rect(0px, ' + (1840 + pad) + 'px, 1080px, ' + (80 - pad) + 'px)' : 'auto';
+    shelfStep = tw + gap;
     var tiles = $('tiles');
     tiles.innerHTML = '';
     for (var i = 0; i < n; i++) {
@@ -306,6 +312,19 @@
       hover(t, Z.SHELF, i);
     }
     st.shelf = Math.min(st.shelf, Math.max(0, n - 1));
+    scrollShelf();
+  }
+
+  /** Carousel: scrolls so the focused tile keeps a neighbor on each side. */
+  function scrollShelf() {
+    var max = Math.max(0, shelf.length - SHELF_VISIBLE), t = shelfFirst;
+    if (st.zone === Z.SHELF) {
+      if (st.shelf < t + 1) t = st.shelf - 1;
+      else if (st.shelf > t + SHELF_VISIBLE - 2) t = st.shelf - SHELF_VISIBLE + 2;
+    }
+    shelfFirst = Math.max(0, Math.min(max, t));
+    var tiles = $('tiles'), x = shelfFirst ? 'translateX(' + (-shelfFirst * shelfStep) + 'px)' : '';
+    tiles.style.webkitTransform = tiles.style.transform = x;
   }
 
   // MARK: - Drawer
@@ -578,8 +597,7 @@
     var ids = e.ids.slice(), at = ids.indexOf(app.id);
     if (dx === 0) {
       if (at >= 0) ids.splice(at, 1);
-      else if (ids.length < MAX_SHELF) ids.push(app.id);
-      else { toast(tr('A prateleira cabe até ' + MAX_SHELF + ' apps.', 'The shelf holds up to ' + MAX_SHELF + ' apps.', 'El estante tiene hasta ' + MAX_SHELF + ' apps.')); return; }
+      else ids.push(app.id);
     } else {
       if (at < 0) return;
       var to = Math.max(0, Math.min(ids.length - 1, at + dx));

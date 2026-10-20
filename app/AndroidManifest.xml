@@ -36,6 +36,14 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="android.media.tv" />
         </intent>
+        <!-- The Bluetooth top button: TV Settings' Remotes & Accessories slice, or the standard Bluetooth settings. -->
+        <provider android:authorities="com.android.tv.settings.accessories.sliceprovider" />
+        <intent>
+            <action android:name="android.settings.SLICE_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.BLUETOOTH_SETTINGS" />
+        </intent>
     </queries>
 
     <uses-feature android:name="android.software.leanback" android:required="false" />

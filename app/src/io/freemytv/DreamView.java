@@ -144,6 +144,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         recs = Recs.get(c);
         Shaders.dream(scene.palette);
         scene.setMotion(0.4f, 0.32f);
+        scene.useGlow();   // the same soft glows as the home screen
         scene.applyPalette();
         content.setUseCompositingLayer(true, null);
         try {
@@ -224,7 +225,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         // Without photos (the clock over the aurora).
         datePaint = Ui.text(Ui.semibold, 36 * k, 0xD9FFFFFF);
         datePaint.setTextAlign(Paint.Align.CENTER);
-        clockPaint = Ui.numbers(Ui.thin, 280 * k, 0xF2FFFFFF);
+        clockPaint = Ui.numbers(Ui.displayMedium, 280 * k, 0xF2FFFFFF);
         clockPaint.setTextAlign(Paint.Align.CENTER);
         clockPaint.setLetterSpacing(-0.01f);
         weatherPaint = Ui.numbers(Ui.medium, 30 * k, 0xC7FFFFFF);
@@ -716,11 +717,11 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         }
     }
 
-    // MARK: - Without photos: the big clock over the aurora
+    // MARK: - Without photos: the big clock over the glows
 
     private void drawFallback(Canvas canvas, long up, float alpha) {
         float t = (up - startedAt) / 1000f;
-        if (up - lastSky >= 100) {
+        if (up - lastSky >= 33) {   // 30 steps a second: the glows drift smoothly
             lastSky = up;
             scene.advance(timeOffset + t);
         }

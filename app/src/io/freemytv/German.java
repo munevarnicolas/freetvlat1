@@ -23,7 +23,6 @@ final class German {
             case "For You": return "Für dich";
             case "Couldn't open ": return "Konnte nicht öffnen: ";
             case " of ": return " von ";
-            case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";
             case "Moving ": return "Verschiebe ";
             case ", position ": return ", Position ";
             case ", tab ": return ", Tab ";
@@ -113,9 +112,13 @@ final class German {
             case "On": return "An";
             case "Off": return "Aus";
             case "Shelf": return "Leiste";
+            case "OK adds or removes · ← → change the order": return "OK fügt hinzu oder entfernt · ← → ändern die Reihenfolge";
             case "on the shelf, place ": return "in der Leiste, Platz ";
             case "not on the shelf": return "nicht in der Leiste";
             case "Remote Buttons": return "Fernbedienungstasten";
+            case "Top Buttons": return "Obere Tasten";
+            case "in the top buttons, place ": return "in den oberen Tasten, Platz ";
+            case "not in the top buttons": return "nicht in den oberen Tasten";
             case "Netflix button": return "Netflix-Taste";
             case "YouTube button": return "YouTube-Taste";
             case "Prime Video button": return "Prime-Video-Taste";
@@ -137,8 +140,8 @@ final class German {
                     return "An · " + english.substring(5).replace(" titles from the TV's apps, 3 new ones every hour.",
                             " Titel aus den Apps des Fernsehers, 3 neue pro Stunde.");
                 }
-                if (english.startsWith("OK adds or removes (up to ")) {
-                    return "OK fügt hinzu oder entfernt (bis zu " + english.substring("OK adds or removes (up to ".length())
+                if (english.startsWith("OK adds or removes a button (up to ")) {
+                    return "OK fügt eine Taste hinzu oder entfernt sie (bis zu " + english.substring("OK adds or removes a button (up to ".length())
                             .replace("). ← → change the order.", "). ← → ändern die Reihenfolge.");
                 }
                 if (english.endsWith(" min ago")) return "vor " + english.substring(0, english.length() - 8) + " Min.";
