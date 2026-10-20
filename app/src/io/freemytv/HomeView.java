@@ -2896,6 +2896,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         zone = Z_CARDS;
                         cardIndex = nearest(cardRects, cards.size(), topRects[topIndex].centerX());
                     }
+                } else if (topIndex < 3 && !lightButtons.isEmpty()) {
+                    topIndex = 3;   // up from the tabs reaches the corner buttons without walking the row
                 } else {
                     return true;
                 }
