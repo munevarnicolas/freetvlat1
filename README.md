@@ -104,6 +104,8 @@ You need a Samsung TV from 2017 or newer (Tizen 3+) and a computer on the same W
 
 This build takes your city from the TV's time zone. For your exact city and the trending picks, build it with your own `config.properties` and [TMDB key](#the-tmdb-key): open the folder in Claude Code and say *"Install Free My TV on my Samsung TV at 192.168.1.50. I live in Lisbon."* It sets up Samsung's tools, and on 2023 and newer TVs you sign in to your Samsung account in the browser to make the certificate.
 
+**On an Apple Silicon Mac**, Samsung's tools need Rosetta, which Apple is removing. Free My TV also builds, signs and installs natively, in Python with the Mac's own `openssl`, no Rosetta: `python3 tizen/build.py --sign-native` then `python3 tizen/install.py <your TV's IP>`. A 2017-2022 TV takes this self-signed build as it is; a 2023 or newer TV still needs the Samsung account certificate, so for a custom build there, use the TizenBrew steps above.
+
 ## Settings
 
 The first values come from `config.properties`, created by the first build (Google TV, LG and Samsung use the same file). Most of them can also be changed on the TV, in *Free My TV* → *Home Settings*, and the TV's choice wins:
@@ -176,7 +178,7 @@ It's your code, and Claude Code finds its way around it. Try:
 - **It uses the TV's own ADB, from inside the TV.** The app connects to `127.0.0.1:5555` with its own key (that's the *Allow USB debugging?* prompt) and runs the same commands you would: `cmd package set-home-activity`, `settings put secure screensaver_components`, `pm disable-user`. Nothing listens to the network.
 - **Drawn by hand on one Canvas**, with Android 13 shaders for the frosted glass and the sky (plain fills on Android 9 to 12, with lighter shadows and no GPU layers on 9 to 11 for their older GPUs).
 - **A safety net.** A watchdog in a separate process brings back the stock home screen after three crashes in five minutes, and a boot check keeps your choice after TV updates.
-- **On LG and Samsung, the same design in plain HTML, CSS and JavaScript** ([`web/`](web)), written for the Chromium of older TVs, with no frameworks. [`webos/build.py`](webos/build.py) packs it with `config.properties` into an `.ipk` without LG's tools, and [`webos/install.py`](webos/install.py) installs it through Developer Mode; on LG it lists and opens apps through the TV's own service bus (Luna), as LG's launcher does. [`tizen/build.py`](tizen/build.py) packs the same app into a Samsung `.wgt`, which uses Tizen's web APIs for the apps and the inputs. To preview it on a computer: `python3 webos/build.py --preview`, then open `out/webos/index.html` (a stand-in lists sample apps).
+- **On LG and Samsung, the same design in plain HTML, CSS and JavaScript** ([`web/`](web)), written for the Chromium of older TVs, with no frameworks. [`webos/build.py`](webos/build.py) packs it with `config.properties` into an `.ipk` without LG's tools, and [`webos/install.py`](webos/install.py) installs it through Developer Mode; on LG it lists and opens apps through the TV's own service bus (Luna), as LG's launcher does. [`tizen/build.py`](tizen/build.py) packs the same app into a Samsung `.wgt`, which uses Tizen's web APIs for the apps and the inputs; [`tools/wgt_sign.py`](tools/wgt_sign.py) signs it and [`tizen/install.py`](tizen/install.py) installs it through [`tools/sdb.py`](tools/sdb.py), all in Python with the computer's own `openssl`, so a Samsung install needs none of Samsung's tools and no Rosetta on Apple Silicon. To preview it on a computer: `python3 webos/build.py --preview`, then open `out/webos/index.html` (a stand-in lists sample apps).
 - **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), and optionally Binance (24-hour prices when `show_crypto=true`).
 
 | File | What it is |
@@ -195,7 +197,8 @@ It's your code, and Claude Code finds its way around it. Try:
 | [`web/home.js`](web/home.js) | The home screen on LG TVs |
 | [`web/tv.js`](web/tv.js) | The TV's apps and inputs, on LG and Samsung |
 | [`webos/build.py`](webos/build.py), [`webos/install.py`](webos/install.py) | The LG app package and its install |
-| [`tizen/build.py`](tizen/build.py) | The Samsung app package |
+| [`tizen/build.py`](tizen/build.py), [`tizen/install.py`](tizen/install.py) | The Samsung app package and its install |
+| [`tools/wgt_sign.py`](tools/wgt_sign.py), [`tools/sdb.py`](tools/sdb.py) | Native Samsung signing and install, no Rosetta |
 
 The website ([freemytv.io](https://freemytv.io)) is in [`docs/`](docs): plain HTML, CSS and JS on GitHub Pages.
 

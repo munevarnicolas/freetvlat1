@@ -77,6 +77,16 @@ screen stays. Two ways:
   has no TMDB key (no picks) and takes the city from the TV's time zone. Walk them through the README's steps.
 - **Their own build** (their city, their TMDB key), below.
 
+**Native, no Rosetta.** Samsung's `sdb` is an Intel binary and `tizen` runs on Java, so on an Apple Silicon Mac the
+Tizen tools need Rosetta, which Apple is removing (gone in macOS 28; on macOS 27 `softwareupdate --install-rosetta`
+can already report "not available"). To build, sign and install without them, this repo ships a native path in pure
+Python with the platform's own `openssl`: `tools/wgt_sign.py` signs the widget (W3C widget signature plus XAdES),
+`tools/sdb.py` speaks the SDB protocol to the TV, and `tizen/install.py` pushes and installs. `python3 tizen/build.py
+--sign-native` signs with a self-signed certificate (enough for 2017-2022 TVs and for testing); `--author a.p12
+--dist d.p12` signs with real certificates. A 2023+ TV still needs a Samsung device-unique certificate, which only
+Samsung's tooling mints; the native path cannot forge it, so for a custom build on a 2023+ TV either make that
+certificate on a machine that has Samsung's tools, or use the TizenBrew release route above.
+
 1. **Ask** for the TV's IP address and their city, if they didn't say.
 2. **On the TV** (they do it): *Apps* → type `1 2 3 4 5` on the remote → *Developer mode* on, *Host PC IP* = this
    computer's IP → restart the TV.
@@ -90,10 +100,14 @@ screen stays. Two ways:
    Certificate passwords are theirs: they type them in their own terminal, never in the chat.
 5. **Settings:** the same `config.properties`; the TMDB key rules above apply.
 6. **Build and sign:** `python3 tizen/build.py --sign <profile>` must end with `Built FreeMyTV-tizen.wgt (...,
-   signed with "<profile>")`.
+   signed with "<profile>")`. Native (no Rosetta): `python3 tizen/build.py --sign-native` (self-signed) or
+   `--sign-native --author a.p12 --dist d.p12`, which ends with `signed natively`.
 7. **Install:** `sdb connect <IP>`, then `tizen install -n FreeMyTV-tizen.wgt -t <serial from sdb devices>` and
    `tizen run -p FreeMyTVio.FreeMyTV -t <serial>` to open it. Updates need the same certificate: the TV refuses one
-   signed by another (`tizen uninstall -p FreeMyTVio.FreeMyTV -t <serial>` first).
+   signed by another (`tizen uninstall -p FreeMyTVio.FreeMyTV -t <serial>` first). Native (no Rosetta):
+   `python3 tizen/install.py <IP>` installs and opens it, `--uninstall` removes it; it drives `tools/sdb.py` instead
+   of Samsung's `sdb`. The push target and installer command vary by firmware, so if an install step fails, probe the
+   TV with `python3 tools/sdb.py shell <IP> <cmd>` and adjust the helpers in `tools/sdb.py`.
 8. **Tell them:** *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
    makes the TV turn on into Free My TV.
 

@@ -60,7 +60,16 @@ def sign(profile):
         sys.exit('The package came back without its signatures.')
 
 
-def build(preview, config, profile):
+def native_sign(app, author, dist):
+    """Add author-signature.xml and signature1.xml to the app files with the native, Rosetta-free signer."""
+    import wgt_sign
+    if author is None:
+        cert = wgt_sign.self_signed(os.path.join(ROOT, 'certs'))
+        author = dist = cert
+    app.update(wgt_sign.signatures_for({n: app[n] for n in app}, author, dist))
+
+
+def build(preview, config, profile, native=False, author=None, dist=None):
     with open(os.path.join(ROOT, 'tizen', 'config.xml'), encoding='utf-8') as f:
         manifest = f.read()
     app_id = re.search(r'<tizen:application id="([^"]+)"', manifest).group(1)
@@ -69,6 +78,8 @@ def build(preview, config, profile):
     for name in ('config.xml', 'icon.png'):
         with open(os.path.join(ROOT, 'tizen', name), 'rb') as f:
             app[name] = f.read()
+    if native:
+        native_sign(app, author, dist)
 
     with zipfile.ZipFile(WGT, 'w', zipfile.ZIP_DEFLATED) as z:
         for path in sorted(app):
@@ -79,8 +90,8 @@ def build(preview, config, profile):
     if preview:
         webapp.preview(app, OUT)
         print('Preview: open out/tizen/index.html (or serve out/tizen) in a browser.')
-    print('Built %s (%s %s, %d KB, %s)' % (os.path.basename(WGT), app_id, version, os.path.getsize(WGT) // 1024,
-                                           'signed with "%s"' % profile if profile else 'not signed'))
+    how = 'signed with "%s"' % profile if profile else ('signed natively' if native else 'not signed')
+    print('Built %s (%s %s, %d KB, %s)' % (os.path.basename(WGT), app_id, version, os.path.getsize(WGT) // 1024, how))
     if not config['tmdbKey']:
         print('No TMDB key: the picks stay off (everything else works).')
 
@@ -88,4 +99,12 @@ def build(preview, config, profile):
 if __name__ == '__main__':
     args = sys.argv[1:]
     profile = args[args.index('--sign') + 1] if '--sign' in args else None
-    build('--preview' in args, webapp.config_from_args(args), profile)
+    author = dist = None
+    if '--author' in args:
+        import wgt_sign
+        author = wgt_sign.Cert.from_p12(args[args.index('--author') + 1],
+                                        os.environ.get('FREEMYTV_AUTHOR_PASS', ''))
+        dist = wgt_sign.Cert.from_p12(args[args.index('--dist') + 1],
+                                      os.environ.get('FREEMYTV_DIST_PASS', ''))
+    build('--preview' in args, webapp.config_from_args(args), profile,
+          native='--sign-native' in args, author=author, dist=dist)
