@@ -2821,7 +2821,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /**
      * The round buttons (Live TV, HDMI Inputs and Settings by default): icon-only glass circles (light by day, smoked at
      * night); the focused one turns white with a dark icon (the tvOS focus) and its name appears below it. An app is
-     * drawn in the same ink as the symbols: its logo's silhouette, or its initials (HomeApps.topMark).
+     * drawn in the same ink as the symbols: the symbol in its icon, its logo's silhouette, or its initials
+     * (HomeApps.topMark).
      */
     private void drawLightButtons(Canvas c) {
         applyTone();
@@ -2845,9 +2846,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (it.symbol != null) {
                 Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.centerY(), 27 * k * s, ink);
             } else if (it.mark != null) {
-                // Wide logos (NETFLIX) fill ~64% of the width; compact ones and initials stay about a symbol's size.
+                // Compact symbols stay about a symbol's size; wordmarks (NETFLIX) get most of the circle's width.
                 float d = 2 * rad, mw = it.mark.getWidth(), mh = it.mark.getHeight();
-                float fit = Math.min(0.64f * d / mw, (it.markLetters ? 0.36f : 0.42f) * d / mh);
+                float fit = Math.min((mw > mh * 1.6f ? 0.78f : 0.64f) * d / mw, 0.42f * d / mh);
                 float hw = mw * fit / 2, hh = mh * fit / 2;
                 tmp.set(cell.centerX() - hw, cell.centerY() - hh, cell.centerX() + hw, cell.centerY() + hh);
                 markPaint.setColor(ink);
