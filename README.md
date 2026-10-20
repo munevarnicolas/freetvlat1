@@ -115,7 +115,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |
 | `language` | `auto` (follows the TV), `en`, `es`, `pt`, `ru` or `de` | `auto` |
-| `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
+| `show_crypto` | Start with the crypto widget (see [Widgets](#widgets)) | `true` |
 | `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
@@ -161,6 +161,20 @@ Free My TV runs on Google TV and Android TV: TCL, Sony, Hisense, Philips, Xiaomi
 | Apps on the shelf | `SHELF` in [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) |
 | Your brand's live TV app | `LIVE_TV_APPS` in the same file |
 
+## Widgets
+
+On Google TV, one widget sits at the right of the tabs, as the drawer's second card and on the screensaver. Pick it in
+*Free My TV* → *Home Settings* → *Widget* (its own rows, like the coins, show only while it's the chosen one):
+
+| Widget | What it shows | What it reads |
+|---|---|---|
+| **Crypto** | Bitcoin, Ethereum and Solana (and the dollar, in reais) with the 24 h change | Binance's public prices (`api.binance.com`), every 5 minutes |
+| **Tailscale** | Connected or not, the TV's tailnet IP, whether an exit node is in use | Android's own list of networks: nothing leaves the TV |
+| **None** | Nothing | Nothing |
+
+Widgets are compiled in and reviewed like the rest of the code: nothing is downloaded or run from elsewhere. Only the
+chosen one runs, and only while the home screen or the screensaver is on. Adding one: see [`Widget.java`](app/src/io/freemytv/Widget.java).
+
 ## Make it yours
 
 It's your code, and Claude Code finds its way around it. Try:
@@ -177,7 +191,7 @@ It's your code, and Claude Code finds its way around it. Try:
 - **Drawn by hand on one Canvas**, with Android 13 shaders for the frosted glass and the sky (plain fills on Android 9 to 12, with lighter shadows and no GPU layers on 9 to 11 for their older GPUs).
 - **A safety net.** A watchdog in a separate process brings back the stock home screen after three crashes in five minutes, and a boot check keeps your choice after TV updates.
 - **On LG and Samsung, the same design in plain HTML, CSS and JavaScript** ([`web/`](web)), written for the Chromium of older TVs, with no frameworks. [`webos/build.py`](webos/build.py) packs it with `config.properties` into an `.ipk` without LG's tools, and [`webos/install.py`](webos/install.py) installs it through Developer Mode; on LG it lists and opens apps through the TV's own service bus (Luna), as LG's launcher does. [`tizen/build.py`](tizen/build.py) packs the same app into a Samsung `.wgt`, which uses Tizen's web APIs for the apps and the inputs. To preview it on a computer: `python3 webos/build.py --preview`, then open `out/webos/index.html` (a stand-in lists sample apps).
-- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), and optionally Binance (24-hour prices when `show_crypto=true`).
+- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), and optionally Binance (24-hour prices, with the crypto widget).
 
 | File | What it is |
 |---|---|
@@ -185,7 +199,8 @@ It's your code, and Claude Code finds its way around it. Try:
 | [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) | Switching between Free My TV and Original |
 | [`Adb.java`](app/src/io/freemytv/Adb.java) | The TV's own ADB, from inside the TV |
 | [`Recs.java`](app/src/io/freemytv/Recs.java) | The picks (TMDB) |
-| [`HomeData.java`](app/src/io/freemytv/HomeData.java) | Weather and prices |
+| [`HomeData.java`](app/src/io/freemytv/HomeData.java) | Weather and prices; runs the chosen widget |
+| [`Widget.java`](app/src/io/freemytv/Widget.java), [`Widgets.java`](app/src/io/freemytv/Widgets.java) | The widget contract and the list of widgets |
 | [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) | The shelf, inputs and All Apps |
 | [`DreamView.java`](app/src/io/freemytv/DreamView.java) | The screensaver |
 | [`SettingsActivity.java`](app/src/io/freemytv/SettingsActivity.java) | The settings screen (the app's icon) |
@@ -201,7 +216,7 @@ The website ([freemytv.io](https://freemytv.io)) is in [`docs/`](docs): plain HT
 
 ## Privacy
 
-No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with the coordinates you set, or your time zone's main city), and Binance only when `show_crypto=true`. Your settings stay on your computer and your TV.
+No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with the coordinates you set, or your time zone's main city), and Binance only with the crypto widget. The Tailscale widget reads only the TV's own network list. Your settings stay on your computer and your TV.
 
 ## Credits
 

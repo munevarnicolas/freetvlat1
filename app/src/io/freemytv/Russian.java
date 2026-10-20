@@ -108,7 +108,22 @@ final class Russian {
             case "Cancel": return "Отмена";
             case "No city with that name.": return "Город с таким названием не найден.";
             case "Couldn't search now: ": return "Не удалось выполнить поиск: ";
-            case "Quotes widget": return "Виджет котировок";
+            // Widgets (#72)
+            case "Widget": return "Виджет";
+            case "None": return "Нет";
+            case "off": return "выкл.";
+            case "not installed": return "не установлен";
+            case "on": return "вкл.";
+            case "exit node": return "выходной узел";
+            case "Connected": return "Подключено";
+            case "Disconnected": return "Отключено";
+            case "Status": return "Состояние";
+            case "Tailscale IP": return "IP в Tailscale";
+            case "Exit node": return "Выходной узел";
+            case "In use": return "Используется";
+            case "No": return "Нет";
+            case "Bitcoin, Ethereum and Solana prices with the 24 h change, from Binance (api.binance.com), every 5 minutes.": return "Курсы Bitcoin, Ethereum и Solana с изменением за 24 ч, с Binance (api.binance.com), каждые 5 минут.";
+            case "Whether Tailscale is connected, this TV's tailnet IP and the exit node, read from Android's network list. No network access.": return "Подключён ли Tailscale, IP телевизора в tailnet и выходной узел — из списка сетей Android. Без доступа к сети.";
             case "On": return "Вкл.";
             case "Off": return "Выкл.";
             case "Shelf": return "Избранные приложения";

@@ -27,7 +27,8 @@ import java.util.concurrent.Executors;
 /**
  * Optional crypto prices (Binance, every 5 min) and weather/sunrise/sunset (Open-Meteo, every 30 min), cached
  * so the screen opens with numbers. Only fetched while the home screen or the screensaver is visible (the screen asks).
- * Neither source needs a key. Location and currency come from config.properties.
+ * Neither source needs a key. Location and currency come from config.properties. Also runs the chosen widget (Widget):
+ * loads it on the same background thread and tells the screens when it changed.
  */
 final class HomeData {
     static final String[] COINS = {"BTC", "ETH", "SOL", "USDT"};
@@ -50,7 +51,7 @@ final class HomeData {
 
     /** BTC, ETH and SOL; in Brazilian reais also the dollar (USDT/BRL), which Binance doesn't list for most currencies. */
     static int coinCount() {
-        return Prefs.quotes() ? active().length : 0;
+        return Widgets.chosen() == Widgets.CRYPTO ? active().length : 0;
     }
 
     private static volatile int[] activeCoins;
@@ -75,6 +76,7 @@ final class HomeData {
         weatherAt = 0;
         pricesFailedAt = 0;
         weatherFailedAt = 0;
+        widgetAt = 0;
     }
 
     static String coinName(int i) {
@@ -119,11 +121,17 @@ final class HomeData {
     private final List<Listener> listeners = new ArrayList<>();
     private volatile boolean fetchingPrices, fetchingWeather;
     private volatile long pricesFailedAt, weatherFailedAt;
+    private final Context app;
+    private volatile Widget watching;      // the widget following changes (set on the main thread)
+    private boolean loadingWidget, widgetAgain;   // guarded by this
+    private volatile long widgetAt;
+    private volatile int widgetPrefs = -1;
 
     private HomeData(Context c) {
+        app = c;
         cache = c.getSharedPreferences("homedata", Context.MODE_PRIVATE);
         try {
-            if (Prefs.quotes()) {
+            if (Widgets.chosen() == Widgets.CRYPTO) {
                 String p = cache.getString("prices", null);
                 if (p != null) parsePrices(p);
                 pricesAt = cache.getLong("pricesAt", 0);
@@ -138,7 +146,10 @@ final class HomeData {
     }
 
     void addListener(Listener l) { if (!listeners.contains(l)) listeners.add(l); }
-    void removeListener(Listener l) { listeners.remove(l); }
+    void removeListener(Listener l) {
+        listeners.remove(l);
+        if (listeners.isEmpty()) watch(null);   // no screen is showing the widget: stop following it
+    }
 
     /** Fetches whatever is stale. The screen calls this when it appears and every minute while it's visible. */
     void refreshIfStale() {
@@ -152,6 +163,8 @@ final class HomeData {
                     parsePrices(body);
                     pricesAt = System.currentTimeMillis();
                     cache.edit().putString("prices", body).putLong("pricesAt", pricesAt).apply();
+                    Widget w = Widgets.chosen();
+                    if (w == Widgets.CRYPTO) setWidgetModel(w);   // on this thread: the screens get both at once
                     notifyListeners();
                 } catch (Exception e) {
                     pricesFailedAt = System.currentTimeMillis();
@@ -161,6 +174,7 @@ final class HomeData {
                 }
             });
         }
+        refreshWidget(now);
         if (!fetchingWeather && (now - weatherAt > WEATHER_EVERY || now < weatherAt) && !failedRecently(weatherFailedAt, now)) {
             fetchingWeather = true;
             io.execute(() -> {
@@ -178,6 +192,67 @@ final class HomeData {
                 }
             });
         }
+    }
+
+    // MARK: - The chosen widget
+
+    /** Loads the chosen widget when its model is missing, old (refreshEvery) or from other settings; follows its changes. */
+    private void refreshWidget(long now) {
+        Widget w = Widgets.chosen();
+        watch(w);
+        if (w == null) return;
+        long every = w.refreshEvery();
+        boolean stale = widgetAt == 0 || widgetPrefs != Prefs.version || now < widgetAt || every > 0 && now - widgetAt > every;
+        if (stale) loadWidget(w, false);
+    }
+
+    /** The widget changed (on any thread): load it again now. */
+    private void widgetChanged() {
+        Widget w = Widgets.chosen();
+        if (w != null && w == watching) loadWidget(w, true);
+    }
+
+    /** One load at a time; a change reported during one loads once more after it (`again`). */
+    private synchronized void loadWidget(Widget w, boolean again) {
+        if (loadingWidget) {
+            widgetAgain |= again;
+            return;
+        }
+        loadingWidget = true;
+        io.execute(() -> {
+            while (true) {
+                setWidgetModel(w);
+                synchronized (this) {
+                    if (!widgetAgain) {
+                        loadingWidget = false;
+                        break;
+                    }
+                    widgetAgain = false;
+                }
+            }
+            notifyListeners();
+        });
+    }
+
+    /** On the background thread. */
+    private void setWidgetModel(Widget w) {
+        widgetPrefs = Prefs.version;
+        widgetAt = System.currentTimeMillis();
+        try {
+            Widget.Model m = w.load(app);
+            if (m != null) w.setModel(m);
+        } catch (RuntimeException e) {
+            AppLog.w(w.id() + " widget: " + e.getMessage());
+        }
+    }
+
+    /** Main thread: `w` follows its changes (null: none does). */
+    private void watch(Widget w) {
+        if (w == watching) return;
+        if (watching != null) watching.unwatch();
+        watching = w;
+        widgetAt = 0;
+        if (w != null) w.watch(app, this::widgetChanged);
     }
 
     private static boolean failedRecently(long at, long now) {

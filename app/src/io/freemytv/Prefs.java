@@ -97,8 +97,17 @@ final class Prefs {
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 
-    static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
-    static void setQuotes(boolean on) { put("quotes", on); }
+    /**
+     * The chosen widget's id (Widgets), or "none". Before there was a choice, only the crypto prices could be turned on
+     * or off: that switch (and show_crypto) still decides until a widget is picked.
+     */
+    static String widget() {
+        String v = sp().getString("widget", null);
+        if (v == null) return sp().getBoolean("quotes", Config.SHOW_CRYPTO) ? "crypto" : Widgets.NONE;
+        return v;
+    }
+
+    static void setWidget(String id) { put("widget", id); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }

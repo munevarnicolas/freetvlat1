@@ -109,7 +109,22 @@ final class German {
             case "Cancel": return "Abbrechen";
             case "No city with that name.": return "Keine Stadt mit diesem Namen.";
             case "Couldn't search now: ": return "Suche gerade nicht möglich: ";
-            case "Quotes widget": return "Kurs-Widget";
+            // Widgets (#72)
+            case "Widget": return "Widget";
+            case "None": return "Keins";
+            case "off": return "aus";
+            case "not installed": return "nicht installiert";
+            case "on": return "an";
+            case "exit node": return "Exit-Node";
+            case "Connected": return "Verbunden";
+            case "Disconnected": return "Getrennt";
+            case "Status": return "Status";
+            case "Tailscale IP": return "Tailscale-IP";
+            case "Exit node": return "Exit-Node";
+            case "In use": return "Aktiv";
+            case "No": return "Nein";
+            case "Bitcoin, Ethereum and Solana prices with the 24 h change, from Binance (api.binance.com), every 5 minutes.": return "Kurse von Bitcoin, Ethereum und Solana mit der Änderung in 24 h, von Binance (api.binance.com), alle 5 Minuten.";
+            case "Whether Tailscale is connected, this TV's tailnet IP and the exit node, read from Android's network list. No network access.": return "Ob Tailscale verbunden ist, die Tailnet-IP des Fernsehers und der Exit-Node, aus Androids Netzwerkliste gelesen. Kein Netzwerkzugriff.";
             case "On": return "An";
             case "Off": return "Aus";
             case "Shelf": return "Leiste";

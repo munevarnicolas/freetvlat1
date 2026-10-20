@@ -223,7 +223,10 @@ public class SettingsActivity extends Activity {
                 case REMOTE_KEYS: {
                     boolean keys = screen == REMOTE_KEYS;
                     String[] labels = keys ? keyLabels() : settingLabels(), values = keys ? keyValues() : settingValues();
-                    return row < labels.length ? labels[row] + ", " + values[row] : "";
+                    if (row >= labels.length) return "";
+                    // The widget row also says what the chosen one reads and where from.
+                    Widget widget = !keys && row == WIDGET_ROW ? Widgets.chosen() : null;
+                    return labels[row] + ", " + values[row] + (widget == null ? "" : ". " + widget.description());
                 }
                 case PICKER: {
                     int at = pickScroll + row;
@@ -625,12 +628,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
-        private static final int CITY_ROW = 4, COIN_ROWS = 6;
-
-        private boolean dollar() {
-            return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
-        }
+        /** Home Settings: language, temperature, theme, weather, city, widget, then the chosen widget's own rows. */
+        private static final int CITY_ROW = 4, WIDGET_ROW = 5, WIDGET_ROWS = 6;
 
         private String[] settingLabels() {
             List<String> l = new ArrayList<>();
@@ -639,11 +638,10 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Tema", "Theme"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
-            l.add(Ui.tr("Widget de cotações", "Quotes widget"));
-            l.add("Bitcoin");
-            l.add("Ethereum");
-            l.add("Solana");
-            if (dollar()) l.add(Ui.tr("Dólar", "Dollar"));
+            l.add(Ui.tr("Widget", "Widget"));
+            // A widget's own rows (the crypto one's coins) only show while it's the chosen one.
+            Widget widget = Widgets.chosen();
+            if (widget != null) java.util.Collections.addAll(l, widget.settingLabels());
             return l.toArray(new String[0]);
         }
 
@@ -659,9 +657,9 @@ public class SettingsActivity extends Activity {
             v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
             v[3] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
-            v[5] = onOff(Prefs.quotes());
-            // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            Widget widget = Widgets.chosen();
+            v[WIDGET_ROW] = widget == null ? Ui.tr("Nenhum", "None") : widget.name();
+            for (int i = WIDGET_ROWS; i < v.length; i++) v[i] = widget.settingValue(i - WIDGET_ROWS);
             return v;
         }
 
@@ -733,11 +731,19 @@ public class SettingsActivity extends Activity {
                 }
                 case 3: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
-                case 5: Prefs.setQuotes(!Prefs.quotes()); break;
-                default:
-                    if (!Prefs.quotes()) return;
-                    Prefs.setCoin(focus - COIN_ROWS, !Prefs.coin(focus - COIN_ROWS));
+                case WIDGET_ROW: {
+                    String[] ids = Widgets.choices(getContext());
+                    int at = java.util.Arrays.asList(ids).indexOf(Prefs.widget());
+                    int next = at < 0 ? (dir > 0 ? 0 : ids.length - 1) : (at + dir + ids.length) % ids.length;
+                    Prefs.setWidget(ids[next]);
                     break;
+                }
+                default: {
+                    Widget widget = Widgets.chosen();
+                    if (widget == null) return;
+                    widget.adjust(focus - WIDGET_ROWS, dir);
+                    break;
+                }
             }
             HomeData.get(getContext()).settingsChanged();
         }
@@ -931,9 +937,7 @@ public class SettingsActivity extends Activity {
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
-                rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
-                if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
+                rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);

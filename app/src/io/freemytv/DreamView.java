@@ -124,6 +124,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
     private Paint datePaint, clockPaint, weatherPaint, weatherDim, quotePaint, stalePaint;
     private Paint cornerDate, cornerQuote, cornerStale, cornerClock, labelPaint, metaPaint;
     private TextPaint titlePaint;
+    private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -525,28 +526,34 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                 c.drawText(clock, right - ink.right, CLOCK_TOP * k - ink.top, cornerClock);
             }
 
-            // Compact prices under the clock, right-aligned.
+            // The widget under the clock, right-aligned: the compact prices, or another widget's line.
             float base = (CLOCK_TOP + Ui.cap(cornerClock) / k + QUOTES_GAP) * k;
-            float cap = Ui.cap(cornerQuote), gap = 7 * k, spacing = 26 * k;
-            int[] coins = HomeData.active();
-            int n = HomeData.coinCount();
-            String[] values = new String[n];
-            float[] glyphs = new float[n];
-            float total = spacing * (n - 1);
-            for (int i = 0; i < n; i++) {
-                values[i] = HomeData.compact(data.prices[coins[i]]);
-                glyphs[i] = Glyphs.width(getContext(), HomeData.COINS[coins[i]], cap);
-                total += glyphs[i] + gap + cornerQuote.measureText(values[i]);
+            Widget widget = Widgets.shown();
+            if (widget != null && widget != Widgets.CRYPTO) {
+                String line = widget.model().line;
+                widgetLine(c, widget.model(), right - cornerQuote.measureText(line), base, cornerQuote, 0xFF);
+            } else {
+                float cap = Ui.cap(cornerQuote), gap = 7 * k, spacing = 26 * k;
+                int[] coins = HomeData.active();
+                int n = HomeData.coinCount();
+                String[] values = new String[n];
+                float[] glyphs = new float[n];
+                float total = spacing * (n - 1);
+                for (int i = 0; i < n; i++) {
+                    values[i] = HomeData.compact(data.prices[coins[i]]);
+                    glyphs[i] = Glyphs.width(getContext(), HomeData.COINS[coins[i]], cap);
+                    total += glyphs[i] + gap + cornerQuote.measureText(values[i]);
+                }
+                float qx = right - total;
+                for (int i = 0; i < n; i++) {
+                    Glyphs.coin(getContext(), c, HomeData.COINS[coins[i]], qx + glyphs[i] / 2, base - cap / 2, cap, 0xA6FFFFFF);
+                    qx += glyphs[i] + gap;
+                    c.drawText(values[i], qx, base, cornerQuote);
+                    qx += cornerQuote.measureText(values[i]) + spacing;
+                }
+                String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
+                if (!stale.isEmpty() && n > 0) c.drawText(stale, right - total - 24 * k - cornerStale.measureText(stale), base, cornerStale);
             }
-            float qx = right - total;
-            for (int i = 0; i < n; i++) {
-                Glyphs.coin(getContext(), c, HomeData.COINS[coins[i]], qx + glyphs[i] / 2, base - cap / 2, cap, 0xA6FFFFFF);
-                qx += glyphs[i] + gap;
-                c.drawText(values[i], qx, base, cornerQuote);
-                qx += cornerQuote.measureText(values[i]) + spacing;
-            }
-            String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
-            if (!stale.isEmpty() && n > 0) c.drawText(stale, right - total - 24 * k - cornerStale.measureText(stale), base, cornerStale);
         } finally {
             chrome.endRecording();
         }
@@ -768,6 +775,12 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             c.drawText(range, x, base, weatherDim);
         }
 
+        Widget widget = Widgets.shown();
+        if (widget != null && widget != Widgets.CRYPTO) {
+            String line = widget.model().line;
+            widgetLine(c, widget.model(), cx - quotePaint.measureText(line) / 2, h - 92 * k, quotePaint, 0x99);
+            return;
+        }
         // Prices near the bottom edge: small white logo + value, all four on one line.
         float cap = Ui.cap(quotePaint), spacing = 56 * k, gap = 10 * k;
         int[] coins = HomeData.active();
@@ -787,5 +800,16 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         }
         String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
         if (!stale.isEmpty() && values.length > 0) c.drawText(Ui.tr("cotações de ", "prices from ") + stale, cx, base + 38 * k, stalePaint);
+    }
+
+    /** A widget's line starting at x, after its status dot (green, grey or red), in `text`. Drawn into a recording. */
+    private void widgetLine(Canvas c, Widget.Model m, float x, float base, Paint text, int alpha) {
+        if (m.line.isEmpty()) return;
+        if (m.dot != Widget.PLAIN) {
+            dotPaint.setColor(m.dot == Widget.GOOD ? 0xFF30D158 : m.dot == Widget.BAD ? 0xFFFF453A : 0xFF8E8E93);
+            dotPaint.setAlpha(alpha);
+            c.drawCircle(x - 14 * k, base - Ui.halfCap(text), 6 * k, dotPaint);
+        }
+        c.drawText(m.line, x, base, text);
     }
 }

@@ -153,6 +153,17 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   `Russian.java` (keyed by the English); text built at runtime uses `Ui.tr(pt, en, es)`, and its German and Russian
   come from those files too (patterns for the parts built at runtime). Add them all. Comments in English, short, only where the why
   isn't obvious.
+- Widgets (the right of the tab row, the drawer's second card, the screensaver line): `Widget` is the contract,
+  `Widgets.ALL` the list in Home Settings order (after "None"), `Prefs.widget()` the chosen id (the old `quotes`
+  switch is the fallback). A widget gives an id, a name, a description (what it reads, which hosts), `hosts()`, and
+  `load()`: on HomeData's background thread, it returns an immutable `Widget.Model` (one line plus a status dot; the
+  card's title, note and up to 4 label/value rows). HomeData loads only the chosen one, only while a screen shows it,
+  again after `refreshEvery()` or when the `Runnable` given to `watch()` runs (`unwatch()` when it's off screen).
+  Its own Home Settings rows (`settingLabels`, `settingValue`, `adjust`) show only while it's chosen. HomeView and
+  DreamView draw the model (text measured once per model, nothing allocated per frame); TalkBack reads
+  `Model.spoken()`. Crypto keeps its own drawing (logos, the 24 h change) in HomeView and DreamView.
+  To add one: a `Widget` subclass, an entry in `Widgets.ALL`, its strings (es/de/ru too), a README row (what it
+  reads, which hosts). No new hosts without a good reason, and never a key in the code.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and
