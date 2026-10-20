@@ -2008,6 +2008,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return fading;
     }
 
+    private float titleRight;   // where the top title ends (0: none), so toasts don't cover it
+
     private void drawToast(Canvas c) {
         if (toast == null) return;
         float age = (SystemClock.uptimeMillis() - toastAt) / 1000f;
@@ -2016,7 +2018,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float padX = 28 * k, padY = 18 * k, icon = 26 * k, iconW = Symbols.width(getContext(), "bell", icon);
         float tw = toast.getWidth() + iconW + 16 * k, th = toast.getHeight();
         float toastTop = 64 * k - (1 - a) * 16 * k;
-        tmp.set((w - tw) / 2f - padX, toastTop, (w + tw) / 2f + padX, toastTop + th + 2 * padY);
+        // Centered, unless that covers the title (a long one, such as Continue Watching): then just right of it.
+        float left = Math.max((w - tw) / 2f - padX, Math.min(titleRight + 40 * k, w - tw - 2 * padX - MARGIN * k));
+        tmp.set(left, toastTop, left + tw + 2 * padX, toastTop + th + 2 * padY);
         int save = c.saveLayerAlpha(tmp.left - 4, tmp.top - 4, tmp.right + 4, tmp.bottom + 4, Math.round(255 * a));
         scene.glass(c, tmp, Math.min(tmp.height() / 2, 32 * k), SMOKE, 0.55f, 0, 0, 0.02f, 1);
         Symbols.draw(getContext(), c, "bell", tmp.left + padX + iconW / 2, tmp.centerY(), icon, 0xEBFFFFFF);
@@ -3379,12 +3383,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawLightTop(Canvas c) {
         applyTone();
         if (clockMode()) {
+            titleRight = 0;
             drawClock(c);
             if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }
         String hello = picksMode() ? Ui.tr("Para você", "For You") : Ui.tr("Continuar assistindo", "Continue Watching", "Seguir viendo");
         c.drawText(hello, MARGIN * k - Ui.leftBearing(lTitle, hello), L_TITLE_BASE * k, lTitle);
+        titleRight = MARGIN * k + lTitle.measureText(hello);
         if (!picksMode()) {
             if (continueMode()) drawWatchRow(c);
             if (HomeData.coinCount() > 0) drawQuotes(c);
