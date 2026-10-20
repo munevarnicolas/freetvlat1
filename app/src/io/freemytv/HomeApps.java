@@ -70,8 +70,8 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
-        Bitmap icon;        // a top button for an app: its icon (round when it is an adaptive icon)
-        boolean iconRound;  // the icon fills the round button (adaptive icons); otherwise it sits on the glass
+        Bitmap mark;        // a top button for an app: its logo's silhouette, or its initials (alpha only, drawn in the ink)
+        boolean markLetters; // the mark is the initials (no logo): drawn a little smaller
     }
 
     /**
@@ -189,8 +189,8 @@ final class HomeApps {
     static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
     static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
     static final int MAX_TOP = 5;
-    /** Pixel size of an app's icon in a top button (drawn at up to ~75 px). */
-    private static final int TOP_ICON = 128;
+    /** Largest side, in pixels, of a top button's mark (drawn at up to ~50 px; mipmaps take it down smoothly). */
+    private static final int MARK_PX = 160;
 
     /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
     static List<String> topButtonKeys() {
@@ -198,8 +198,12 @@ final class HomeApps {
         return keys != null ? keys : TOP_DEFAULT;
     }
 
-    /** The top buttons, ready to draw: the built-in ones and the apps that are still installed. */
-    static List<Item> topButtons(Context c) {
+    /**
+     * The top buttons, ready to draw: the built-in ones and the apps that are still installed. `extract`: also lifts
+     * the logos that are not on disk yet (slow: background only); without it, those apps show their initials until the
+     * next load.
+     */
+    static List<Item> topButtons(Context c, boolean extract) {
         PackageManager pm = c.getPackageManager();
         List<Item> items = new ArrayList<>();
         for (String key : topButtonKeys()) {
@@ -213,7 +217,7 @@ final class HomeApps {
             if (launch == null) continue;   // uninstalled since it was picked
             ResolveInfo ri = pm.resolveActivity(launch, 0);
             Item it = app(key, ri != null ? String.valueOf(ri.loadLabel(pm)) : key);
-            topIcon(c, it);
+            topMark(c, it, extract);
             items.add(it);
         }
         return items;
@@ -236,41 +240,98 @@ final class HomeApps {
         return out;
     }
 
-    private static final Map<String, Bitmap> TOP_ICONS = new HashMap<>();
-    private static final Set<String> TOP_ROUND = new HashSet<>();
+    // Masks made once per process: by logo (the logos themselves are cached in LOGOS) and by initials.
+    private static final Map<Bitmap, Bitmap> LOGO_MARKS = new java.util.IdentityHashMap<>();
+    private static final Map<String, Bitmap> LETTER_MARKS = new HashMap<>();
 
-    /** The app's icon for its round button: an adaptive icon's layers cut to a circle, or the plain icon as it is. */
-    private static void topIcon(Context c, Item it) {
-        synchronized (TOP_ICONS) {
-            if (!TOP_ICONS.containsKey(it.pkg)) {
-                Drawable icon = appIcon(c, it.pkg);
-                Bitmap b = null;
-                if (icon != null) {
-                    b = Bitmap.createBitmap(TOP_ICON, TOP_ICON, Bitmap.Config.ARGB_8888);
-                    Canvas canvas = new Canvas(b);
-                    if (icon instanceof AdaptiveIconDrawable) {
-                        AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
-                        Path clip = new Path();
-                        clip.addCircle(TOP_ICON / 2f, TOP_ICON / 2f, TOP_ICON / 2f, Path.Direction.CW);
-                        canvas.clipPath(clip);
-                        int pad = TOP_ICON / 4;
-                        for (Drawable layer : new Drawable[] {a.getBackground(), a.getForeground()}) {
-                            if (layer == null) continue;
-                            layer.setBounds(-pad, -pad, TOP_ICON + pad, TOP_ICON + pad);
-                            layer.draw(canvas);
-                        }
-                        TOP_ROUND.add(it.pkg);
-                    } else {
-                        icon.setBounds(0, 0, TOP_ICON, TOP_ICON);
-                        icon.draw(canvas);
-                    }
-                    b.setHasMipMap(true);
-                }
-                TOP_ICONS.put(it.pkg, b);
+    /**
+     * An app in a round button is drawn in one ink, like the built-in symbols: the silhouette of the logo the shelf
+     * lifts from its TV art or, without one, its initials. Never its colored icon (on glass, next to the symbols, most
+     * TV apps' icons are white squares).
+     */
+    private static void topMark(Context c, Item it, boolean extract) {
+        String[] d = known(it.pkg);
+        Bitmap logo = d != null ? shelfLogo(c, d[0], d[2], d[4], extract) : shelfLogo(c, it.pkg, it.pkg, "", extract);
+        if (logo != null) {
+            synchronized (LOGO_MARKS) {
+                if (!LOGO_MARKS.containsKey(logo)) LOGO_MARKS.put(logo, logoMark(logo));
+                it.mark = LOGO_MARKS.get(logo);
             }
-            it.icon = TOP_ICONS.get(it.pkg);
-            it.iconRound = TOP_ROUND.contains(it.pkg);
         }
+        if (it.mark == null) {
+            String letters = initials(d != null ? d[1] : it.label);
+            synchronized (LETTER_MARKS) {
+                Bitmap m = LETTER_MARKS.get(letters);
+                if (m == null) {
+                    m = letterMark(letters);
+                    LETTER_MARKS.put(letters, m);
+                }
+                it.mark = m;
+            }
+            it.markLetters = true;
+        }
+    }
+
+    /**
+     * The logo's alpha as a mask, at most MARK_PX on its longer side. A colored logo with white inside (YouTube's play
+     * triangle) gets the white cut out, so the shape still reads in one ink. null when nothing is left.
+     */
+    private static Bitmap logoMark(Bitmap logo) {
+        float scale = Math.min(1f, (float) MARK_PX / Math.max(logo.getWidth(), logo.getHeight()));
+        int w = Math.max(1, Math.round(logo.getWidth() * scale)), h = Math.max(1, Math.round(logo.getHeight() * scale));
+        Bitmap small = scale < 1f ? Bitmap.createScaledBitmap(logo, w, h, true) : logo;
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        if (small != logo) small.recycle();
+        int solid = 0, colored = 0, white = 0;
+        for (int p : px) {
+            if ((p >>> 24) < 128) continue;
+            int r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+            solid++;
+            if (min > 200 && max - min < 40) white++;
+            else if (max - min > 90) colored++;
+        }
+        int inked = 0;
+        boolean cut = solid > 0 && colored > solid * 0.25f && white > solid * 0.02f && white < solid * 0.6f;
+        for (int i = 0; i < px.length; i++) {
+            float a = (px[i] >>> 24) / 255f;
+            if (cut && a > 0) {
+                int p = px[i], r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+                a *= 1 - smoothstep(170, 225, Math.min(r, Math.min(g, b)));
+            }
+            px[i] = Math.round(a * 255) << 24 | 0xFFFFFF;
+            if (a > 0.5f) inked++;
+        }
+        if (inked < px.length * 0.01f) return null;
+        Bitmap mask = trim(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)).extractAlpha();
+        mask.setHasMipMap(true);
+        return mask;
+    }
+
+    /** One or two letters for an app with no logo: "Pluto TV" → "PT", "Kodi" → "K". */
+    static String initials(String name) {
+        StringBuilder sb = new StringBuilder();
+        for (String word : name.trim().split("\\s+")) {
+            if (word.isEmpty() || sb.length() >= 2) continue;
+            int cp = word.codePointAt(0);
+            if (Character.isLetterOrDigit(cp)) sb.appendCodePoint(Character.toUpperCase(cp));
+        }
+        return sb.length() > 0 ? sb.toString() : "?";
+    }
+
+    /** The initials in the UI font, cut tight to the letters, as a mask. */
+    private static Bitmap letterMark(String letters) {
+        Paint p = Ui.text(Ui.semibold, MARK_PX * 0.8f, 0xFFFFFFFF);
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        p.getTextBounds(letters, 0, letters.length(), bounds);
+        int w = Math.max(1, bounds.width() + 4), h = Math.max(1, bounds.height() + 4);
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        new Canvas(b).drawText(letters, 2 - bounds.left, 2 - bounds.top, p);
+        Bitmap mask = b.extractAlpha();
+        b.recycle();
+        mask.setHasMipMap(true);
+        return mask;
     }
 
     /** The app's icon at the highest density it has (TV launchers often ship only a blurry low-density one). */

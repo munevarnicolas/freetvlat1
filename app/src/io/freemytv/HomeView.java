@@ -242,6 +242,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private Paint pricePaint, changePaint, sheetTitle;
     private TextPaint titlePaint, gridLabel, toastPaint;
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    // An app's mark in a round button: an alpha mask drawn in this paint's color (the symbols' ink).
+    private final Paint markPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shadowSoft = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -382,7 +384,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cardFocus[i] = new Spring(0.32f, 0.78f, 0);
             cardRects[i] = new RectF();
         }
-        setLightButtons(HomeApps.topButtons(a));
+        setLightButtons(HomeApps.topButtons(a, false));
         recs.setLight(true);
         checkNight(false);
         sheetLayer.setVisibility(INVISIBLE);
@@ -1930,7 +1932,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final List<HomeApps.Item> st = statusList(c);
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = HomeApps.others(c);
-            final List<HomeApps.Item> top = HomeApps.topButtons(c);
+            final List<HomeApps.Item> top = HomeApps.topButtons(c, true);
             handler.post(() -> {
                 setLightButtons(top);
                 setShelf(s);
@@ -2818,8 +2820,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /**
      * The round buttons (Live TV, HDMI Inputs and Settings by default): icon-only glass circles (light by day, smoked at
-     * night); the focused one turns white with a dark icon (the tvOS focus) and its name appears below it. An app shows
-     * its own icon: filling the circle when it is an adaptive icon, on the glass otherwise.
+     * night); the focused one turns white with a dark icon (the tvOS focus) and its name appears below it. An app is
+     * drawn in the same ink as the symbols: its logo's silhouette, or its initials (HomeApps.topMark).
      */
     private void drawLightButtons(Canvas c) {
         applyTone();
@@ -2839,13 +2841,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 fill.setColor(Ui.alpha(0xFFFFFFFF, f));
                 c.drawCircle(cell.centerX(), cell.centerY(), rad, fill);
             }
-            if (it.icon != null) {
-                float half = it.iconRound ? rad : rad * 0.62f;
-                tmp.set(cell.centerX() - half, cell.centerY() - half, cell.centerX() + half, cell.centerY() + half);
-                c.drawBitmap(it.icon, null, tmp, bitmapPaint);
-            } else if (it.symbol != null) {
-                Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.centerY(), 27 * k * s,
-                        blend(tone(L_INK, 0xEBFFFFFF), L_INK, f));
+            int ink = blend(tone(L_INK, 0xEBFFFFFF), L_INK, f);
+            if (it.symbol != null) {
+                Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.centerY(), 27 * k * s, ink);
+            } else if (it.mark != null) {
+                // Wide logos (NETFLIX) fill ~64% of the width; compact ones and initials stay about a symbol's size.
+                float d = 2 * rad, mw = it.mark.getWidth(), mh = it.mark.getHeight();
+                float fit = Math.min(0.64f * d / mw, (it.markLetters ? 0.36f : 0.42f) * d / mh);
+                float hw = mw * fit / 2, hh = mh * fit / 2;
+                tmp.set(cell.centerX() - hw, cell.centerY() - hh, cell.centerX() + hw, cell.centerY() + hh);
+                markPaint.setColor(ink);
+                c.drawBitmap(it.mark, null, tmp, markPaint);
             }
             if (f > 0.01f) {
                 String label = it.label;
