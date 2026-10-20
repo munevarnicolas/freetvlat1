@@ -70,6 +70,8 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        Bitmap icon;        // a top button for an app: its icon (round when it is an adaptive icon)
+        boolean iconRound;  // the icon fills the round button (adaptive icons); otherwise it sits on the glass
     }
 
     /**
@@ -180,6 +182,113 @@ final class HomeApps {
         Collections.sort(more, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
         out.addAll(more);
         return out;
+    }
+
+    // MARK: - Top buttons (the round ones at the top right)
+
+    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    static final int MAX_TOP = 5;
+    /** Pixel size of an app's icon in a top button (drawn at up to ~75 px). */
+    private static final int TOP_ICON = 128;
+
+    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
+    static List<String> topButtonKeys() {
+        List<String> keys = Prefs.topButtons();
+        return keys != null ? keys : TOP_DEFAULT;
+    }
+
+    /** The top buttons, ready to draw: the built-in ones and the apps that are still installed. */
+    static List<Item> topButtons(Context c) {
+        PackageManager pm = c.getPackageManager();
+        List<Item> items = new ArrayList<>();
+        for (String key : topButtonKeys()) {
+            if (items.size() >= MAX_TOP) break;
+            Item builtIn = topBuiltIn(key);
+            if (builtIn != null) {
+                items.add(builtIn);
+                continue;
+            }
+            Intent launch = launchIntent(pm, key);
+            if (launch == null) continue;   // uninstalled since it was picked
+            ResolveInfo ri = pm.resolveActivity(launch, 0);
+            Item it = app(key, ri != null ? String.valueOf(ri.loadLabel(pm)) : key);
+            topIcon(c, it);
+            items.add(it);
+        }
+        return items;
+    }
+
+    private static Item topBuiltIn(String key) {
+        switch (key) {
+            case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("TV aberta", "Live TV"), "live_tv");
+            case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi");
+            case TOP_SETTINGS: return action(SETTINGS, TOP_SETTINGS, Ui.tr("Configurações", "Settings"), "settings");
+            default: return null;
+        }
+    }
+
+    /** What can go in the top buttons, as {key, name}: the built-in ones first, then the apps (as for the shelf). */
+    static List<String[]> topCandidates(Context c) {
+        List<String[]> out = new ArrayList<>();
+        for (String key : TOP_DEFAULT) out.add(new String[] {key, topBuiltIn(key).label});
+        out.addAll(shelfCandidates(c));
+        return out;
+    }
+
+    private static final Map<String, Bitmap> TOP_ICONS = new HashMap<>();
+    private static final Set<String> TOP_ROUND = new HashSet<>();
+
+    /** The app's icon for its round button: an adaptive icon's layers cut to a circle, or the plain icon as it is. */
+    private static void topIcon(Context c, Item it) {
+        synchronized (TOP_ICONS) {
+            if (!TOP_ICONS.containsKey(it.pkg)) {
+                Drawable icon = appIcon(c, it.pkg);
+                Bitmap b = null;
+                if (icon != null) {
+                    b = Bitmap.createBitmap(TOP_ICON, TOP_ICON, Bitmap.Config.ARGB_8888);
+                    Canvas canvas = new Canvas(b);
+                    if (icon instanceof AdaptiveIconDrawable) {
+                        AdaptiveIconDrawable a = (AdaptiveIconDrawable) icon;
+                        Path clip = new Path();
+                        clip.addCircle(TOP_ICON / 2f, TOP_ICON / 2f, TOP_ICON / 2f, Path.Direction.CW);
+                        canvas.clipPath(clip);
+                        int pad = TOP_ICON / 4;
+                        for (Drawable layer : new Drawable[] {a.getBackground(), a.getForeground()}) {
+                            if (layer == null) continue;
+                            layer.setBounds(-pad, -pad, TOP_ICON + pad, TOP_ICON + pad);
+                            layer.draw(canvas);
+                        }
+                        TOP_ROUND.add(it.pkg);
+                    } else {
+                        icon.setBounds(0, 0, TOP_ICON, TOP_ICON);
+                        icon.draw(canvas);
+                    }
+                    b.setHasMipMap(true);
+                }
+                TOP_ICONS.put(it.pkg, b);
+            }
+            it.icon = TOP_ICONS.get(it.pkg);
+            it.iconRound = TOP_ROUND.contains(it.pkg);
+        }
+    }
+
+    /** The app's icon at the highest density it has (TV launchers often ship only a blurry low-density one). */
+    private static Drawable appIcon(Context c, String pkg) {
+        try {
+            PackageManager pm = c.getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            Drawable icon = null;
+            if (ai.icon != 0) {
+                try {
+                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
+                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+                }
+            }
+            return icon != null ? icon : pm.getApplicationIcon(ai);
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
     }
 
     /** Live TV, the HDMI inputs with a device sending a signal, and All Apps. */
@@ -767,19 +876,7 @@ final class HomeApps {
     private static Bitmap iconTile(Context c, String pkg) {
         Bitmap b = darkTile();
         Canvas canvas = new Canvas(b);
-        Drawable icon = null;
-        try {
-            PackageManager pm = c.getPackageManager();
-            ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
-            if (ai.icon != 0) {
-                try {
-                    icon = pm.getResourcesForApplication(ai).getDrawableForDensity(ai.icon, DisplayMetrics.DENSITY_XXXHIGH, null);
-                } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
-                }
-            }
-            if (icon == null) icon = pm.getApplicationIcon(ai);
-        } catch (PackageManager.NameNotFoundException ignored) {
-        }
+        Drawable icon = appIcon(c, pkg);
         if (icon == null) return b;
         int size = Math.round(TILE_H * 0.56f);
         float left = (TILE_W - size) / 2f, top = (TILE_H - size) / 2f;
