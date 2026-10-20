@@ -31,6 +31,22 @@ final class Russian {
             case "← → to move · OK to drop · Back to cancel": return "← → — переместить · OK — оставить · Назад — отмена";
             case "Moving ": return "Перемещение: ";
             case ", position ": return ", место ";
+            // Continue Watching
+            case "Continue Watching": return "Продолжить просмотр";
+            case "Continue Watching apps": return "Приложения для «Продолжить просмотр»";
+            case "Top of the screen": return "Верх экрана";
+            case "Recommendations": return "Рекомендации";
+            case "Clock": return "Часы";
+            case "Nothing half-watched in your apps.": return "В приложениях нет недосмотренного.";
+            case "Missing permission: pick Continue Watching again in Home Settings.":
+                return "Нет разрешения: снова выберите «Продолжить просмотр» в настройках главного экрана.";
+            case "Hide from Continue Watching": return "Скрыть из «Продолжить просмотр»";
+            case "Open the app": return "Открыть приложение";
+            case "Hidden. Settings > Home Settings shows them again.": return "Скрыто. Вернуть можно в настройках главного экрана.";
+            case "Hidden items are back": return "Скрытое возвращено";
+            case "Looking for the apps…": return "Поиск приложений…";
+            case "No app on this TV shares what you watch.": return "Ни одно приложение на этом ТВ не делится тем, что вы смотрите.";
+            case "OK turns an app on or off in Continue Watching.": return "OK включает или отключает приложение в «Продолжить просмотр».";
             case "Couldn't open ": return "Не удалось открыть ";
             case " of ": return " из ";
             case ", tab ": return ", вкладка ";
@@ -172,6 +188,13 @@ final class Russian {
                         + "В разделе «Настройки → Сеть и Интернет» забудьте сеть и подключитесь заново, затем повторите попытку. "
                         + "Недоступные сети там не отображаются: Claude Code может удалить их с компьютера.";
             default:
+                // Continue Watching: season and episode ("S2 E5" → "С2 Э5"), time left ("23 min left"), apps on ("3 of 5").
+                if (english.matches("S\\S+ E\\S+")) return english.replaceFirst("S(\\S+) E(\\S+)", "С$1 Э$2");
+                if (english.endsWith(" left")) {
+                    return "осталось " + english.substring(0, english.length() - 5).replace(" h ", " ч ").replace(" min", " мин");
+                }
+                if (english.matches("\\d+ of \\d+")) return english.replace(" of ", " из ");
+                if (english.startsWith("Show hidden items (")) return "Показать скрытое (" + english.substring(19);
                 // Notices are saved in the language in use when they were generated.
                 String[] prefixes = {"Couldn't check Free My TV: ", "Couldn't turn on Free My TV: ",
                         "Couldn't go back to the original: ", "Original mode, but I couldn't turn back on: "};

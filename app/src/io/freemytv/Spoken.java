@@ -37,6 +37,10 @@ final class Spoken extends AccessibilityNodeProvider {
         void click(int id);
         /** False for what is only there to be read (a widget): it takes the focus, so TalkBack gets to it, but OK does nothing. */
         default boolean clickable(int id) { return true; }
+        /** Whether holding OK on this item opens a menu (TalkBack offers it as a long click). */
+        default boolean holds(int id) { return false; }
+        /** OK held on this item (TalkBack's long click). */
+        default void hold(int id) {}
     }
 
     /** TalkBack's click and the remote's OK can both arrive for one press: only the first counts. */
@@ -115,6 +119,10 @@ final class Spoken extends AccessibilityNodeProvider {
         info.setFocused(focused);
         info.setClickable(clickable);
         if (clickable) info.addAction(AccessibilityAction.ACTION_CLICK);
+        if (source.holds(id)) {
+            info.setLongClickable(true);
+            info.addAction(AccessibilityAction.ACTION_LONG_CLICK);
+        }
         if (!focused) info.addAction(AccessibilityAction.ACTION_FOCUS);
         info.setAccessibilityFocused(id == accessibilityFocused);
         info.addAction(id == accessibilityFocused ? AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
@@ -146,6 +154,11 @@ final class Spoken extends AccessibilityNodeProvider {
                     follow(id);
                     source.click(id);
                 }
+                return true;
+            case AccessibilityNodeInfo.ACTION_LONG_CLICK:
+                if (!source.holds(id)) return false;
+                follow(id);
+                source.hold(id);
                 return true;
             default:
                 return false;

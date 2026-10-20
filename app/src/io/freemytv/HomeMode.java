@@ -326,6 +326,7 @@ final class HomeMode {
             done(c, null);
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, ORIGINAL, 120_000);
+            if (WatchNext.allowed(c)) ModeJob.schedule(c, ModeJob.REVOKE_WATCH, null, 5_000);
         } catch (Exception e) {
             done(c, Ui.tr("Não deu para voltar ao original: ", "Couldn't go back to the original: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
         }
@@ -483,6 +484,41 @@ final class HomeMode {
         String component = lines[lines.length - 1].trim();
         // With no default home yet, the system's chooser answers ("android/...ResolverActivity"): unknown.
         return component.contains("/") && !component.startsWith("android/") ? packageOf(component) : "";
+    }
+
+    // MARK: - Continue Watching's permission
+
+    /**
+     * Continue Watching reads Android TV's Watch Next list, which needs READ_TV_LISTINGS. It is granted only when you
+     * pick Continue Watching (Home Settings asks this from :home), through the TV's own ADB so the TV doesn't ask;
+     * if that fails, Home Settings falls back to Android's own permission dialog.
+     */
+    static void requestWatchGrant(Context c) {
+        ModeJob.schedule(c, ModeJob.GRANT_WATCH, null, 0);
+    }
+
+    static void grantWatchNow(Context app) {
+        if (WatchNext.allowed(app)) return;
+        try (Adb adb = Adb.connect(app, 8_000, null)) {
+            adb.shell("pm grant " + PKG + " " + WatchNext.PERMISSION);
+            AppLog.w("continue watching permission " + (WatchNext.allowed(app) ? "granted" : "not granted"));
+        } catch (IOException e) {
+            AppLog.w("continue watching permission: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Original takes the permission back. Android stops the app's processes when a permission is revoked, so this runs
+     * as its own job once the switch is over (if the job is run again after that, it finds nothing left to revoke).
+     */
+    static void revokeWatchNow(Context app) {
+        if (!WatchNext.allowed(app) || !ORIGINAL.equals(state(app).optString("mode", ORIGINAL))) return;
+        try (Adb adb = Adb.connect(app, 10_000, null)) {
+            AppLog.w("continue watching permission: revoking");
+            adb.shell("pm revoke " + PKG + " " + WatchNext.PERMISSION);
+        } catch (IOException e) {
+            AppLog.w("continue watching permission: " + e.getMessage());
+        }
     }
 
     /** Whether Google TV's setup app is one of the home screens (its RecoveryActivity), so it must go off too. */

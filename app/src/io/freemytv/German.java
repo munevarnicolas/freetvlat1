@@ -128,7 +128,28 @@ final class German {
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Disney und Globoplay: Diese Tasten steuert der Fernseher selbst.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "YouTube, Prime Video und Google Play: Diese Tasten steuert der Fernseher selbst.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Das sind die Tasten der TCL-Fernbedienung: Auf diesem Fernseher funktionieren sie wie immer.";
+            case "Continue Watching": return "Weiterschauen";
+            case "Top of the screen": return "Oben auf dem Bildschirm";
+            case "Continue Watching apps": return "Apps für Weiterschauen";
+            case "Recommendations": return "Empfehlungen";
+            case "Clock": return "Uhr";
+            case "Nothing half-watched in your apps.": return "Nichts Angefangenes in deinen Apps.";
+            case "Missing permission: pick Continue Watching again in Home Settings.": return "Berechtigung fehlt: In den Start-Einstellungen erneut „Weiterschauen“ wählen.";
+            case "Hide from Continue Watching": return "Aus „Weiterschauen“ ausblenden";
+            case "Open the app": return "App öffnen";
+            case "Hidden. Settings > Home Settings shows them again.": return "Ausgeblendet. Einstellungen > Start-Einstellungen zeigt sie wieder an.";
+            case "Hidden items are back": return "Ausgeblendetes ist wieder da";
+            case "Looking for the apps…": return "Apps werden gesucht…";
+            case "No app on this TV shares what you watch.": return "Keine App auf diesem Fernseher teilt, was du schaust.";
+            case "OK turns an app on or off in Continue Watching.": return "OK schaltet eine App in „Weiterschauen“ ein oder aus.";
             default:
+                // Continue Watching: season and episode ("S2 E5"), time left ("23 min left"), apps on ("3 of 5").
+                if (english.matches("S\\S+ E\\S+")) return english.replaceFirst("S(\\S+) E(\\S+)", "St. $1 F. $2");
+                if (english.endsWith(" left")) {
+                    return "noch " + english.substring(0, english.length() - 5).replace(" h ", " Std. ").replace(" min", " Min.");
+                }
+                if (english.matches("\\d+ of \\d+")) return english.replace(" of ", " von ");
+                if (english.startsWith("Show hidden items (")) return "Ausgeblendete anzeigen (" + english.substring(19);
                 if (english.startsWith("Free My TV is on: new home screen and screensaver, ")) {
                     return "Free My TV ist an: neuer Startbildschirm und Bildschirmschoner, "
                             + english.substring("Free My TV is on: new home screen and screensaver, ".length()).replace(" apps turned off.", " Apps ausgeschaltet.");

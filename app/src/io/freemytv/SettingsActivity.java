@@ -113,7 +113,7 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, WATCH_APPS = 6;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_H = 74, ROW_GAP = 8, CHOICE_H = 104;
@@ -133,6 +133,9 @@ public class SettingsActivity extends Activity {
         private static final int PICK_CITY = 0;
         private final List<String[]> cities = new ArrayList<>();
         private String cityStatus = "";
+        // Continue Watching apps: {package, name}, null until the background scan is done; hidden items when opened.
+        private List<String[]> watchApps;
+        private int watchScan, watchHiddenCount;
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
@@ -231,6 +234,14 @@ public class SettingsActivity extends Activity {
                     return pickLabels.get(at) + (at == pickCurrent ? Ui.tr(", escolhido", ", selected") : "")
                             + ", " + (at + 1) + Ui.tr(" de ", " of ") + pickLabels.size();
                 }
+                case WATCH_APPS: {
+                    int at = pickScroll + row;
+                    if (watchApps == null || at >= listSize()) return "";
+                    if (at == watchApps.size()) return hiddenLabel();
+                    String[] app = watchApps.get(at);
+                    return app[1] + ", " + onOff(!Prefs.watchOff().contains(app[0])) + ", " + (at + 1)
+                            + Ui.tr(" de ", " of ", " de ") + watchApps.size();
+                }
                 case SHELF_EDIT: {
                     int at = pickScroll + row;
                     if (at >= shelfRows.size()) return "";
@@ -253,8 +264,8 @@ public class SettingsActivity extends Activity {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
                 height = CHOICE_H;
             } else {
-                top = LIST_TOP + 20 + row * (LIST_ROW_H + LIST_ROW_GAP);
-                height = LIST_ROW_H;
+                top = LIST_TOP + 20 + row * (listRowH() + LIST_ROW_GAP);
+                height = listRowH();
             }
             focusBox.set(LIST_X * k, top * k, LIST_R * k, (top + height) * k);
             return focusBox;
@@ -273,6 +284,7 @@ public class SettingsActivity extends Activity {
         void pause() {
             running = false;
             handler.removeCallbacks(poll);
+            handler.removeCallbacks(askWatch);
             Choreographer.getInstance().removeFrameCallback(this);
         }
 
@@ -337,6 +349,7 @@ public class SettingsActivity extends Activity {
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
+                case WATCH_APPS: return Math.min(PICK_VISIBLE, listSize());
                 default: return Prefs.KEYS.length;
             }
         }
@@ -365,7 +378,7 @@ public class SettingsActivity extends Activity {
             c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
 
-            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
+            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else if (screen == WATCH_APPS) drawWatchApps(c); else drawList(c);
         }
 
         private void drawMain(Canvas c, float seconds) {
@@ -607,6 +620,9 @@ public class SettingsActivity extends Activity {
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
+                            } else if (screen == WATCH_APPS) {
+                                focus = WATCH_ROW;
+                                screen = HOME_SETTINGS;
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
                                 screen = MAIN;
@@ -625,8 +641,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
-        private static final int CITY_ROW = 4, COIN_ROWS = 6;
+        /** Home Settings: language, temperature, theme, top of the screen, its apps, weather, city, quotes, then one row per coin. */
+        private static final int WATCH_ROW = 4, CITY_ROW = 6, COIN_ROWS = 8;
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -637,6 +653,8 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Idioma", "Language"));
             l.add(Ui.tr("Temperatura", "Temperature"));
             l.add(Ui.tr("Tema", "Theme"));
+            l.add(Ui.tr("Conteúdo do topo", "Top of the screen", "Contenido de arriba"));
+            l.add(Ui.tr("Apps de Continuar assistindo", "Continue Watching apps", "Apps de Seguir viendo"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
@@ -657,9 +675,14 @@ public class SettingsActivity extends Activity {
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
             String theme = Prefs.theme();
             v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
-            v[3] = onOff(Prefs.weather());
+            String top = Prefs.topContent();
+            v[3] = top.equals(Prefs.TOP_CONTINUE) ? Ui.tr("Continuar assistindo", "Continue Watching", "Seguir viendo")
+                    : top.equals(Prefs.TOP_NONE) ? Ui.tr("Relógio", "Clock", "Reloj")
+                    : Ui.tr("Recomendações", "Recommendations", "Recomendaciones");
+            v[WATCH_ROW] = watchCount();
+            v[5] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
-            v[5] = onOff(Prefs.quotes());
+            v[7] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -731,9 +754,23 @@ public class SettingsActivity extends Activity {
                     Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
                     break;
                 }
-                case 3: Prefs.setWeather(!Prefs.weather()); break;
-                case CITY_ROW: return;
-                case 5: Prefs.setQuotes(!Prefs.quotes()); break;
+                case 3: {
+                    int at = java.util.Arrays.asList(Prefs.TOP_CONTENT).indexOf(Prefs.topContent());
+                    String next = Prefs.TOP_CONTENT[(at + dir + Prefs.TOP_CONTENT.length) % Prefs.TOP_CONTENT.length];
+                    Prefs.setTopContent(next);
+                    // Picked now: the main process grants the permission through the TV's ADB (the TV doesn't ask);
+                    // if it still isn't there a little later, Android's own dialog asks.
+                    handler.removeCallbacks(askWatch);
+                    if (next.equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+                        HomeMode.requestWatchGrant(getContext());
+                        handler.postDelayed(askWatch, WATCH_GRANT_MS);
+                    }
+                    break;
+                }
+                case WATCH_ROW: return;   // a list of its own (OK)
+                case 5: Prefs.setWeather(!Prefs.weather()); break;
+                case CITY_ROW: return;   // a search of its own (OK)
+                case 7: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(focus - COIN_ROWS, !Prefs.coin(focus - COIN_ROWS));
@@ -793,12 +830,132 @@ public class SettingsActivity extends Activity {
             }).start();
         }
 
+        /**
+         * Home Settings has 11 or 12 rows (the city, Continue Watching, and the dollar with BRL): tighter rows there, so
+         * the list and its hint end well above the bottom edge (the hint at 986 px of 1080 with 12 rows).
+         */
+        private float listRowH() {
+            return screen == HOME_SETTINGS ? 56 : LIST_ROW_H;
+        }
+
         private boolean scrolling() {
-            return screen == PICKER || screen == SHELF_EDIT;
+            return screen == PICKER || screen == SHELF_EDIT || screen == WATCH_APPS;
         }
 
         private int listSize() {
+            if (screen == WATCH_APPS) return watchApps == null ? 0 : watchApps.size() + (watchHiddenCount > 0 ? 1 : 0);
             return screen == SHELF_EDIT ? shelfRows.size() : pickLabels.size();
+        }
+
+        // MARK: - Continue Watching apps
+
+        /** How long the ADB grant gets before Android's permission dialog asks instead. */
+        private static final long WATCH_GRANT_MS = 10_000;
+
+        private final Runnable askWatch = this::askWatch;
+
+        /** The ADB grant didn't come through (yet): Android's own permission dialog asks instead. */
+        private void askWatch() {
+            if (running && Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+                activity.requestPermissions(new String[] {WatchNext.PERMISSION}, 1);
+            }
+        }
+
+        private boolean watchLocked() {
+            return !Prefs.topContent().equals(Prefs.TOP_CONTINUE);
+        }
+
+        /** Looks for the apps that can feed Continue Watching, in the background (only here, never on the home screen). */
+        private void scanWatchApps() {
+            final int scan = ++watchScan;
+            final Context c = getContext().getApplicationContext();
+            new Thread(() -> {
+                final List<String[]> found = WatchNext.sources(c);
+                handler.post(() -> {
+                    if (scan != watchScan) return;
+                    watchApps = found;
+                    if (screen == WATCH_APPS) {
+                        pickScroll = 0;
+                        focus = 0;
+                        spoken.focusMoved();
+                    }
+                    invalidate();
+                });
+            }, "watch-apps").start();
+        }
+
+        /** "5 of 7": the apps on, of those found. */
+        private String watchCount() {
+            if (watchApps == null) return "…";
+            Set<String> off = Prefs.watchOff();
+            int on = 0;
+            for (String[] app : watchApps) if (!off.contains(app[0])) on++;
+            return Ui.tr(on + " de " + watchApps.size(), on + " of " + watchApps.size(), on + " de " + watchApps.size());
+        }
+
+        private String hiddenLabel() {
+            return Ui.tr("Mostrar os ocultos (" + watchHiddenCount + ")", "Show hidden items (" + watchHiddenCount + ")",
+                    "Mostrar los ocultos (" + watchHiddenCount + ")");
+        }
+
+        private void openWatchApps() {
+            watchHiddenCount = Prefs.watchHidden().size();
+            pickScroll = 0;
+            focus = 0;
+            screen = WATCH_APPS;
+        }
+
+        /** OK: an app on or off, or the hidden items back. */
+        private void toggleWatchApp() {
+            int at = pickScroll + focus;
+            if (watchApps == null || at >= listSize()) return;
+            if (at == watchApps.size()) {
+                Prefs.setWatchHidden(new HashSet<>());
+                watchHiddenCount = 0;
+                int size = listSize();
+                if (pickScroll > 0 && pickScroll + PICK_VISIBLE > size) pickScroll = Math.max(0, size - PICK_VISIBLE);
+                focus = Math.max(0, Math.min(size - pickScroll, PICK_VISIBLE) - 1);
+                announceForAccessibility(Ui.tr("Os ocultos voltaram", "Hidden items are back", "Los ocultos han vuelto"));
+                spoken.focusMoved();
+                return;
+            }
+            Set<String> off = Prefs.watchOff();
+            String pkg = watchApps.get(at)[0];
+            if (!off.remove(pkg)) off.add(pkg);
+            Prefs.setWatchOff(off);
+            spoken.focusMoved();
+        }
+
+        private void drawWatchApps(Canvas c) {
+            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            c.drawText(Ui.tr("Apps de Continuar assistindo", "Continue Watching apps", "Apps de Seguir viendo"),
+                    LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            if (watchApps == null || watchApps.isEmpty() && watchHiddenCount == 0) {
+                c.drawText(watchApps == null ? Ui.tr("Procurando os apps…", "Looking for the apps…", "Buscando las apps…")
+                        : Ui.tr("Nenhum app desta TV mostra o que você assiste.", "No app on this TV shares what you watch.",
+                        "Ninguna app de esta TV comparte lo que ves."), LIST_X * k + 30 * k, (LIST_TOP + 56) * k, hint);
+                return;
+            }
+            Set<String> off = Prefs.watchOff();
+            int rows = rowCount();
+            for (int i = 0; i < rows; i++) {
+                int at = pickScroll + i;
+                boolean hiddenRow = at == watchApps.size();
+                boolean on = hiddenRow || !off.contains(watchApps.get(at)[0]);
+                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                float f = drawRowBackground(c, i);
+                rowLabel.setColor(blend(on ? 0xF2FFFFFF : 0x80FFFFFF, on ? INK : 0x801C1C1E, f));
+                rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
+                float base = rowRect.centerY() + Ui.halfCap(rowLabel);
+                String label = hiddenRow ? hiddenLabel() : watchApps.get(at)[1];
+                c.drawText(TextUtils.ellipsize(label, new TextPaint(rowLabel), 560 * k, TextUtils.TruncateAt.END).toString(), rowRect.left + 30 * k, base, rowLabel);
+                if (!hiddenRow) c.drawText(onOff(on), rowRect.right - 30 * k, base, rowValue);
+            }
+            float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            c.drawText(Ui.tr("OK liga ou desliga o app em Continuar assistindo.", "OK turns an app on or off in Continue Watching.",
+                    "OK activa o desactiva la app en Seguir viendo."), LIST_X * k + 30 * k, hy, hint);
         }
 
         // MARK: - Shelf editor
@@ -926,20 +1083,28 @@ public class SettingsActivity extends Activity {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : Ui.tr("Ajustes do Início", "Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            float rowH = listRowH();
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                float y = (LIST_TOP + 20 + i * (rowH + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + rowH * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
+                boolean locked = !keys && (i >= COIN_ROWS && !Prefs.quotes() || i == WATCH_ROW && watchLocked());
                 rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
+                float right = rowRect.right - 30 * k;
+                if (!keys && i == WATCH_ROW) {
+                    float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
+                    Symbols.draw(getContext(), c, "chevron_right", right - cw / 2, rowRect.centerY(), 22 * k,
+                            blend(locked ? 0x33FFFFFF : 0x66FFFFFF, locked ? 0x331C1C1E : 0x991C1C1E, f));
+                    right -= cw + 16 * k;
+                }
+                c.drawText(values[i], right, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            float hy = (LIST_TOP + 20 + labels.length * (rowH + LIST_ROW_GAP) + 36) * k;
             c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video e Google Play: a própria TV controla esses botões.",
@@ -977,6 +1142,13 @@ public class SettingsActivity extends Activity {
                 toggleShelfApp();
                 invalidate();
                 return;
+            } else if (screen == WATCH_APPS) {
+                toggleWatchApp();
+                invalidate();
+                return;
+            } else if (screen == HOME_SETTINGS && focus == WATCH_ROW) {
+                if (watchLocked()) return;
+                openWatchApps();
             } else if (screen == REMOTE_KEYS) {
                 openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS && focus == CITY_ROW) {
@@ -996,6 +1168,8 @@ public class SettingsActivity extends Activity {
             } else if (focus == 2) {
                 screen = HOME_SETTINGS;
                 focus = 0;
+                watchApps = null;
+                scanWatchApps();
             } else if (focus == 3) {
                 openShelfEditor();
             } else if (focus == 4) {
