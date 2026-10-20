@@ -436,6 +436,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         watchArt = new WatchArt(a, () -> {
             heroDirty = true;
             updateTint();
+            heroLayer.invalidate();
+            wake();
         });
         makeLightButtons();
         recs.setLight(true);
@@ -750,7 +752,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
+                || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
                 || sheet.value > 0.001f || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
@@ -1046,6 +1048,34 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lWeather.setColor(tone(L_DIM, 0xFF98989D));
         lClockQuote.setColor(tone(L_DIM, 0xFF98989D));
         staleQuote.setColor(tone(L_FAINT, 0x99FFFFFF));
+        if (continueMode()) applyWatchContrast();
+    }
+
+    private int watchTextBg, watchQuoteBg, watchTitleInk, watchMetaInk, watchQuoteInk;
+    private int watchTitleColor, watchMetaColor, watchQuoteColor;
+    private boolean watchColorsReady;
+
+    /** Contrast changes only with the background or the day/night text colours. */
+    private void applyWatchContrast() {
+        int card = blend(tintFrom, tintTo, Ui.clamp(tintMix.value));
+        int behind = plainAt((L_CARDS_TOP + WatchArt.H + 70) * k / Math.max(1, h), card);
+        int quoteBg = plainAt((L_TABBAR_TOP + L_TABBAR_H / 2) * k / Math.max(1, h), card);
+        int title = lCardTitle.getColor(), meta = lCardMeta.getColor(), quote = lQuote.getColor();
+        if (!watchColorsReady || behind != watchTextBg || quoteBg != watchQuoteBg
+                || title != watchTitleInk || meta != watchMetaInk || quote != watchQuoteInk) {
+            watchTextBg = behind;
+            watchQuoteBg = quoteBg;
+            watchTitleInk = title;
+            watchMetaInk = meta;
+            watchQuoteInk = quote;
+            watchTitleColor = readable(title, behind);
+            watchMetaColor = readable(meta, behind);
+            watchQuoteColor = readable(quote, quoteBg);
+            watchColorsReady = true;
+        }
+        lCardTitle.setColor(watchTitleColor);
+        lCardMeta.setColor(watchMetaColor);
+        if (tinted) lQuote.setColor(watchQuoteColor);
     }
 
     private boolean tickBackgroundFade(long up) {
@@ -2900,11 +2930,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawWatchRow(Canvas c) {
-        // The text under the cards (and the empty row's line) at 4.5:1 or more on whatever colour the background has.
-        float under = (L_CARDS_TOP + WatchArt.H + 70) * k / Math.max(1, h);
-        int behind = plainAt(under, blend(tintFrom, tintTo, Ui.clamp(tintMix.value)));
-        lCardTitle.setColor(readable(tone(L_INK, WHITE), behind));
-        lCardMeta.setColor(readable(tone(L_DIM, 0xFF98989D), behind));
         if (watching.isEmpty()) {
             if (!watchLoaded) return;   // not read yet: saying "nothing" now could be wrong
             String text = watchAllowed ? Ui.tr("Nada pela metade nos seus apps.", "Nothing half-watched in your apps.",
@@ -2937,7 +2962,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int target = lb > 0.18f ? 0xFF000000 : 0xFFFFFFFF;   // either one reaches 4.5:1 on its side of 0.18
         for (int i = 0; i < 10; i++) {
             int c = blend(ink, target, i / 10f);
-            float lc = luminance(c);
+            float lc = luminance(blend(bg, c | 0xFF000000, (c >>> 24) / 255f));
             if ((Math.max(lb, lc) + 0.05f) / (Math.min(lb, lc) + 0.05f) >= 4.5f) return c;
         }
         return target;
@@ -2970,7 +2995,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
-        Bitmap img = watchArt.get(it.picture(), it.pkg);
+        Bitmap img = watchArt.get(it.pictureUri, it.pictureKey, it.bannerKey, it.pkg);
         if (img != null) {
             roundImage(c, img, cell, r);
         } else {
@@ -3080,6 +3105,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         menu.target = 1;
         menuLayer.setVisibility(VISIBLE);
         menuLayer.invalidate();
+        wake();
         click.open();
         spoken.focusMoved();
     }
@@ -3107,6 +3133,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             menuLayer.setVisibility(INVISIBLE);
         }
         menuLayer.invalidate();
+        wake();
         if (was) spoken.focusMoved();
     }
 
@@ -3154,6 +3181,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         menuIndex = next;
         menuPick.target = next;
         menuLayer.invalidate();
+        wake();
         click.move();
         spoken.focusMoved();
     }
@@ -3231,7 +3259,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < menuOptions.length; i++) {
             menuRow(i, tmp);
             float f = Ui.clamp(1 - Math.abs(pick - i));
-            int base = i == 0 ? tone(0xFFD70015, 0xFFFF453A) : ink;   // hiding is the destructive one: red
+            int base = i == 0 ? tone(0xFFD70015, 0xFFFF6961) : ink;   // hiding is the destructive one: red
             menuOptionPaint.setColor(Ui.alpha(blend(base, onPill, f), a));
             c.drawText(menuOptions[i], tmp.left + 28 * k, tmp.centerY() + Ui.halfCap(menuOptionPaint), menuOptionPaint);
         }
@@ -3305,7 +3333,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         WatchNext.Item it = watching.get(Math.min(watchIndex, watching.size() - 1));
-        Integer color = watchArt.color(it.picture(), it.pkg);
+        Integer color = watchArt.color(it.pictureKey, it.bannerKey);
         if (color == null || tinted && color == tintTo) return;
         if (!tinted) {
             tintFrom = tintTo = color;

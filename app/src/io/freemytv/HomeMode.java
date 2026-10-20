@@ -116,6 +116,8 @@ final class HomeMode {
 
     /** Asks the main process to switch (the settings screen calls this). */
     static void request(Context c, String mode) {
+        // Back to Free My TV before Original's revoke ran: it would stop the app mid-switch, and isn't wanted any more.
+        if (FREE.equals(mode)) ModeJob.cancel(c, ModeJob.REVOKE_WATCH);
         ModeJob.schedule(c, ModeJob.APPLY, mode, 0);
     }
 
@@ -509,15 +511,18 @@ final class HomeMode {
 
     /**
      * Original takes the permission back. Android stops the app's processes when a permission is revoked, so this runs
-     * as its own job once the switch is over (if the job is run again after that, it finds nothing left to revoke).
+     * as its own job once the switch is over (if the job is run again after that, it finds nothing left to revoke). It
+     * holds the switch lock, so a switch never runs under it, and does nothing if Free My TV is back by then.
      */
     static void revokeWatchNow(Context app) {
-        if (!WatchNext.allowed(app) || !ORIGINAL.equals(state(app).optString("mode", ORIGINAL))) return;
-        try (Adb adb = Adb.connect(app, 10_000, null)) {
-            AppLog.w("continue watching permission: revoking");
-            adb.shell("pm revoke " + PKG + " " + WatchNext.PERMISSION);
-        } catch (IOException e) {
-            AppLog.w("continue watching permission: " + e.getMessage());
+        synchronized (RUN) {
+            if (!WatchNext.allowed(app) || !ORIGINAL.equals(state(app).optString("mode", ORIGINAL))) return;
+            try (Adb adb = Adb.connect(app, 10_000, null)) {
+                AppLog.w("continue watching permission: revoking");
+                adb.shell("pm revoke " + PKG + " " + WatchNext.PERMISSION);
+            } catch (IOException e) {
+                AppLog.w("continue watching permission: " + e.getMessage());
+            }
         }
     }
 

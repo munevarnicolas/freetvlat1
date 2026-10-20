@@ -37,11 +37,24 @@ final class WatchNext {
         String pkg, title, episode;     // episode: "S2 E5" (in the TV's language) or the episode's title, or null
         String app;                     // the app's name, for the card's details line
         long duration, position, engaged;
-        String poster, thumbnail, intent;
+        String intent;
+        final Uri pictureUri;
+        final String pictureKey, bannerKey;
+        private final String picture;
+
+        Item(String pkg, String poster, String thumbnail) {
+            this.pkg = pkg;
+            picture = thumbnail != null ? thumbnail : poster;
+            Uri uri = picture == null ? null : Uri.parse(picture);
+            pictureUri = uri != null && ("content".equalsIgnoreCase(uri.getScheme())
+                    || "android.resource".equalsIgnoreCase(uri.getScheme())) ? uri : null;
+            pictureKey = pictureUri == null ? null : picture;
+            bannerKey = "banner:" + pkg;
+        }
 
         /** The picture for a 16:9 card: the thumbnail (usually 16:9) before the poster. */
         String picture() {
-            return thumbnail != null ? thumbnail : poster;
+            return picture;
         }
 
         /** 0 to 1, or -1 when there is no position worth showing (not started, or no length). */
@@ -156,7 +169,9 @@ final class WatchNext {
 
     private static List<Long> continueChannels(ContentResolver cr, String self) {
         List<Long> ids = new ArrayList<>();
-        try (Cursor cur = cr.query(TvContract.Channels.CONTENT_URI, null, null, null, null)) {
+        try (Cursor cur = cr.query(TvContract.Channels.CONTENT_URI,
+                new String[] {TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NAME,
+                        TvContract.Channels.COLUMN_PACKAGE_NAME}, null, null, null)) {
             if (cur == null) return ids;
             int id = cur.getColumnIndex(TvContract.Channels._ID);
             int name = cur.getColumnIndex(TvContract.Channels.COLUMN_DISPLAY_NAME);
@@ -175,14 +190,32 @@ final class WatchNext {
 
     private static List<Item> read(ContentResolver cr, Uri uri) {
         List<Item> out = new ArrayList<>();
-        try (Cursor cur = cr.query(uri, null, null, null, null)) {
+        List<String> projection = new ArrayList<>(java.util.Arrays.asList(
+                TvContract.WatchNextPrograms.COLUMN_BROWSABLE,
+                TvContract.WatchNextPrograms.COLUMN_TITLE,
+                TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME,
+                TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER,
+                TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER,
+                TvContract.WatchNextPrograms.COLUMN_EPISODE_TITLE,
+                TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS,
+                TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
+                TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI,
+                TvContract.WatchNextPrograms.COLUMN_THUMBNAIL_URI,
+                TvContract.WatchNextPrograms.COLUMN_INTENT_URI));
+        // Preview programs have no engagement time.
+        if (TvContract.WatchNextPrograms.CONTENT_URI.equals(uri)) {
+            projection.add(TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS);
+        }
+        try (Cursor cur = cr.query(uri, projection.toArray(new String[0]), null, null, null)) {
             if (cur == null) return out;
             while (cur.moveToNext()) {
                 if ("0".equals(text(cur, TvContract.WatchNextPrograms.COLUMN_BROWSABLE))) continue;
-                Item it = new Item();
-                it.title = text(cur, TvContract.WatchNextPrograms.COLUMN_TITLE);
-                it.pkg = text(cur, TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME);
-                if (it.title == null || it.pkg == null) continue;
+                String title = text(cur, TvContract.WatchNextPrograms.COLUMN_TITLE);
+                String pkg = text(cur, TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME);
+                if (title == null || pkg == null) continue;
+                Item it = new Item(pkg, text(cur, TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI),
+                        text(cur, TvContract.WatchNextPrograms.COLUMN_THUMBNAIL_URI));
+                it.title = title;
                 String season = text(cur, TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER);
                 String episode = text(cur, TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER);
                 // Season and episode as each language writes them: "S2 E5", "T2 E5" (temporada), "St. 2 F. 5" (German.java).
@@ -193,8 +226,6 @@ final class WatchNext {
                 it.duration = number(cur, TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS);
                 it.position = number(cur, TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS);
                 it.engaged = number(cur, TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS);
-                it.poster = text(cur, TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI);
-                it.thumbnail = text(cur, TvContract.WatchNextPrograms.COLUMN_THUMBNAIL_URI);
                 it.intent = text(cur, TvContract.WatchNextPrograms.COLUMN_INTENT_URI);
                 out.add(it);
             }

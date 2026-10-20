@@ -122,7 +122,7 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[12];
+        private final Spring[] pop;
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -173,6 +173,7 @@ public class SettingsActivity extends Activity {
         SettingsView(SettingsActivity a) {
             super(a);
             activity = a;
+            pop = new Spring[Math.max(settingLabels().length, Math.max(6, Math.max(PICK_VISIBLE, Prefs.KEYS.length)))];
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
             HomeData.Weather wx = HomeData.get(a).weather;
             Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
@@ -191,6 +192,7 @@ public class SettingsActivity extends Activity {
                 }
                 @Override public int focused() { return focus + 1; }
                 @Override public void focus(int id) {
+                    if (screen == HOME_SETTINGS && focus == TOP_ROW && id != TOP_ROW + 1) commitWatch();
                     focus = id - 1;
                     invalidate();
                 }
@@ -277,11 +279,13 @@ public class SettingsActivity extends Activity {
             startedAt = SystemClock.uptimeMillis();
             lastNanos = 0;
             handler.post(poll);
+            if (watchGrantPending) handler.postDelayed(askWatch, WATCH_GRANT_MS);
             Choreographer.getInstance().postFrameCallback(this);
             spoken.readAgain();
         }
 
         void pause() {
+            commitWatch();
             running = false;
             handler.removeCallbacks(poll);
             handler.removeCallbacks(askWatch);
@@ -577,12 +581,14 @@ public class SettingsActivity extends Activity {
             boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
+                    if (down && screen == HOME_SETTINGS && focus == TOP_ROW) commitWatch();
                     if (down && focus > 0) focus--;
                     else if (down && scrolling() && pickScroll > 0) pickScroll--;
                     invalidate();
                     spoken.focusMoved();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
+                    if (down && screen == HOME_SETTINGS && focus == TOP_ROW) commitWatch();
                     if (down && focus < rowCount() - 1) focus++;
                     else if (down && scrolling() && pickScroll + rowCount() < listSize()) pickScroll++;
                     invalidate();
@@ -614,6 +620,7 @@ public class SettingsActivity extends Activity {
                         if (e.getRepeatCount() == 0) backDown = true;
                     } else {
                         if (backDown && !e.isCanceled()) {
+                            if (screen == HOME_SETTINGS) commitWatch();
                             if (screen == PICKER && pickFor == PICK_CITY) {
                                 focus = CITY_ROW;
                                 screen = HOME_SETTINGS;
@@ -642,7 +649,7 @@ public class SettingsActivity extends Activity {
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, top of the screen, its apps, weather, city, quotes, then one row per coin. */
-        private static final int WATCH_ROW = 4, CITY_ROW = 6, COIN_ROWS = 8;
+        private static final int TOP_ROW = 3, WATCH_ROW = 4, CITY_ROW = 6, COIN_ROWS = 8;
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -758,13 +765,9 @@ public class SettingsActivity extends Activity {
                     int at = java.util.Arrays.asList(Prefs.TOP_CONTENT).indexOf(Prefs.topContent());
                     String next = Prefs.TOP_CONTENT[(at + dir + Prefs.TOP_CONTENT.length) % Prefs.TOP_CONTENT.length];
                     Prefs.setTopContent(next);
-                    // Picked now: the main process grants the permission through the TV's ADB (the TV doesn't ask);
-                    // if it still isn't there a little later, Android's own dialog asks.
                     handler.removeCallbacks(askWatch);
-                    if (next.equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
-                        HomeMode.requestWatchGrant(getContext());
-                        handler.postDelayed(askWatch, WATCH_GRANT_MS);
-                    }
+                    watchGrantPending = false;
+                    watchPickPending = true;
                     break;
                 }
                 case WATCH_ROW: return;   // a list of its own (OK)
@@ -853,10 +856,25 @@ public class SettingsActivity extends Activity {
         private static final long WATCH_GRANT_MS = 10_000;
 
         private final Runnable askWatch = this::askWatch;
+        private boolean watchPickPending, watchGrantPending;
+
+        /** Stepping through the values only saves them: leaving the row with Continue Watching on asks for the permission. */
+        private void commitWatch() {
+            if (!watchPickPending) return;
+            watchPickPending = false;
+            handler.removeCallbacks(askWatch);
+            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+                HomeMode.requestWatchGrant(getContext());
+                watchGrantPending = true;
+                handler.postDelayed(askWatch, WATCH_GRANT_MS);
+            }
+        }
 
         /** The ADB grant didn't come through (yet): Android's own permission dialog asks instead. */
         private void askWatch() {
-            if (running && Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+            if (!running) return;
+            watchGrantPending = false;
+            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
                 activity.requestPermissions(new String[] {WatchNext.PERMISSION}, 1);
             }
         }

@@ -18,7 +18,6 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -60,35 +59,24 @@ final class WatchArt {
      * The card's picture, or the app's banner if it has none or it failed; null while loading (in the background;
      * onLoaded runs on the main thread when it's in).
      */
-    Bitmap get(String uri, String pkg) {
-        if (onTv(uri)) {
-            Bitmap b = fetch(uri);
-            if (b != null || !failedRecently(uri)) return b;
+    Bitmap get(Uri uri, String key, String bannerKey, String pkg) {
+        if (uri != null) {
+            Bitmap b = fetch(key, uri, pkg);
+            if (b != null || !failedRecently(key)) return b;
         }
-        return fetch(BANNER + pkg);
+        return fetch(bannerKey, null, pkg);
     }
-
-    private static final String BANNER = "banner:";
 
     /** The colour of the card's picture (or of the banner in its place), or null until it's decoded. */
-    Integer color(String uri, String pkg) {
+    Integer color(String key, String bannerKey) {
         synchronized (cache) {
-            if (onTv(uri)) {
-                Integer c = colors.get(uri);
-                Long at = failed.get(uri);
+            if (key != null) {
+                Integer c = colors.get(key);
+                Long at = failed.get(key);
                 if (c != null || at == null || System.currentTimeMillis() - at >= RETRY_MS) return c;
             }
-            return colors.get(BANNER + pkg);
+            return colors.get(bannerKey);
         }
-    }
-
-    /** A picture on the TV itself (an app's content provider or resources): the only ones read. */
-    static boolean onTv(String uri) {
-        if (uri == null) return false;
-        String scheme = Uri.parse(uri).getScheme();
-        if (scheme == null) return false;
-        scheme = scheme.toLowerCase(Locale.ROOT);
-        return scheme.equals("content") || scheme.equals("android.resource");
     }
 
     /** The home screen went away: nothing more is posted to it, and the pictures go. */
@@ -107,32 +95,32 @@ final class WatchArt {
         }
     }
 
-    private Bitmap fetch(String uri) {
+    private Bitmap fetch(String key, Uri uri, String pkg) {
         if (closed) return null;
         synchronized (cache) {
-            Bitmap b = cache.get(uri);
-            if (b != null || pending.contains(uri)) return b;
-            Long at = failed.get(uri);
+            Bitmap b = cache.get(key);
+            if (b != null || pending.contains(key)) return b;
+            Long at = failed.get(key);
             if (at != null && System.currentTimeMillis() - at < RETRY_MS) return null;
-            pending.add(uri);
+            pending.add(key);
         }
         IO.execute(() -> {
             if (closed) return;
             Bitmap b = null;
             try {
-                b = load(uri);
+                b = uri == null ? banner(pkg) : load(uri);
             } catch (IOException | RuntimeException | OutOfMemoryError e) {
                 AppLog.w("continue watching picture: " + e.getMessage());
             }
             Integer color = b == null ? null : colorOf(b);
             synchronized (cache) {
-                pending.remove(uri);
+                pending.remove(key);
                 if (closed) return;
                 if (b != null) {
-                    cache.put(uri, b);
-                    colors.put(uri, color);
+                    cache.put(key, b);
+                    colors.put(key, color);
                 } else {
-                    failed.put(uri, System.currentTimeMillis());
+                    failed.put(key, System.currentTimeMillis());
                 }
             }
             main.post(() -> { if (!closed) onLoaded.run(); });   // the picture, or the banner in its place
@@ -140,8 +128,7 @@ final class WatchArt {
         return null;
     }
 
-    private Bitmap load(String uri) throws IOException {
-        if (uri.startsWith(BANNER)) return banner(uri.substring(BANNER.length()));
+    private Bitmap load(Uri uri) throws IOException {
         byte[] data = read(uri);
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
@@ -206,10 +193,9 @@ final class WatchArt {
         return out;
     }
 
-    /** Only content:// and android.resource:// get here (onTv). */
-    private byte[] read(String uri) throws IOException {
-        if (!onTv(uri)) throw new IOException("not a picture on the TV");
-        try (InputStream in = app.getContentResolver().openInputStream(Uri.parse(uri))) {
+    /** Only content:// and android.resource:// get here (checked when the item is read). */
+    private byte[] read(Uri uri) throws IOException {
+        try (InputStream in = app.getContentResolver().openInputStream(uri)) {
             if (in == null) throw new IOException("no picture there");
             return readAll(in);
         }
