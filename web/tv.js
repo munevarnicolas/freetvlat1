@@ -45,9 +45,12 @@ var TV = (function () {
   // Not shown among LG's apps: the inputs above, LG's own home and launchers.
   var HIDDEN = /^(com\.webos\.app\.(livetv|hdmi\d|home|homeconnect|discovery|launcher)|com\.webos\.app\.inputpicker)$/;
 
-  // Not shown among Samsung's apps: Smart Hub's own pieces, the platform's tools and players (but its browser and
-  // Netflix, which live there too), services, keyboards and ad players. The rest is what Smart Hub shows.
-  var SAMSUNG_HIDDEN = /^(org\.volt\.|org\.tizen\.(?!browser$|netflix)|ise-|d75857a5-)|Service$|[Dd]aemon|Preview$|syspopup|[Hh]elper$|AdPlayer|AdSuite|[Kk]eyboard/;
+  // Shown among Samsung's apps: store and sideloaded apps (a 10-character package before the dot), minus the
+  // store-shaped platform pieces, plus the few of Samsung's own worth opening. Everything else is internal.
+  var SAMSUNG_SHOWN = /^([A-Za-z0-9]{10}\.(?!WebAccountExtension$|service$|cmsWebApp$|PrivacyChoices$|tvapp$|ADPlayer$|emanual$)[^.]+|org\.tizen\.(browser|netflix-app|primevideo)|com\.samsung\.tv\.(store|tvplus|gaminghub|SmartThingsApp|mycontents))$/;
+
+  // Store apps' own background pieces: services, previews, helpers, ad players.
+  var SAMSUNG_HIDDEN = /Service$|[Dd]aemon|Preview$|syspopup|[Hh]elper$|AdPlayer|AdSuite|[Kk]eyboard/;
 
   // Samsung's live TV viewer: it shows whichever source the TV is on (the antenna, or the HDMI picked here).
   var SAMSUNG_VIEWER = 'org.tizen.tv-viewer';
@@ -74,7 +77,7 @@ var TV = (function () {
         var out = [];
         for (var i = 0; i < list.length; i++) {
           var a = list[i];
-          if (!a.id || a.show === false || a.id === self || SAMSUNG_HIDDEN.test(a.id)) continue;
+          if (!a.id || a.show === false || a.id === self || !SAMSUNG_SHOWN.test(a.id) || SAMSUNG_HIDDEN.test(a.id)) continue;
           var icon = a.iconPath || '';
           if (icon && icon.indexOf('://') < 0) icon = 'file://' + icon;
           out.push({id: a.id, title: a.name || a.id, icon: icon, color: ''});
