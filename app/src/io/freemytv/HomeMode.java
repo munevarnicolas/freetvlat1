@@ -136,18 +136,23 @@ final class HomeMode {
     }
 
     /**
-     * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
-     * on TCL and Vestel TVs in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
-     * boot check and an update turn it back on.
+     * The remote's buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on in Free My
+     * TV mode on TCL and Vestel TVs, and on other brands only while the TV button opens something; it goes off with
+     * Original. Android turns it off when this app is updated, so the boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        if (RemoteKeys.serviceNeeded()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+    }
+
+    /** The TV button's choice changed (other brands): the service goes on or off to match. */
+    static void syncRemoteService(Context c) {
+        ModeJob.schedule(c, ModeJob.REMOTE, null, 0);
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
-            remoteService(app, adb, true);
+            remoteService(app, adb, RemoteKeys.serviceNeeded());
         } catch (IOException e) {
             AppLog.w("remote buttons service: " + e.getMessage());
         }
@@ -261,7 +266,7 @@ final class HomeMode {
             s.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(sorted(disabled))).put("setupHome", setupHome);
             save(c, s);
-            if (RemoteKeys.supported()) {
+            if (RemoteKeys.serviceNeeded()) {
                 try {
                     remoteService(c, adb, true);
                 } catch (IOException e) {

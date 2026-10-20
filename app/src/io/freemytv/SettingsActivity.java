@@ -95,6 +95,8 @@ public class SettingsActivity extends Activity {
             }
         }
         if (view.onKey(event)) return true;
+        // The TV button reaches our screens (the key service leaves it to us, in case the settings are learning it).
+        if (RemoteKeys.onKey(this, event, false)) return true;
         return super.dispatchKeyEvent(event);
     }
 
@@ -113,7 +115,11 @@ public class SettingsActivity extends Activity {
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
-        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5;
+        private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5, TV_TEACH = 6;
+        /** Remote Buttons rows that aren't TCL key codes (other brands): the TV button and "Teach the TV button". */
+        private static final int ROW_TV = -1, ROW_TEACH = -2;
+        /** "Teach the TV button": where its only row ("Use the default") starts, below the instructions. */
+        private static final float TEACH_ROW = 150;
         private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_H = 74, ROW_GAP = 8, CHOICE_H = 104;
@@ -125,7 +131,7 @@ public class SettingsActivity extends Activity {
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
-        private final List<String> pickLabels = new ArrayList<>();
+        private final List<String> pickLabels = new ArrayList<>(), pickValues = new ArrayList<>();
         // The shelf editor: the apps it can hold (selected ones first, in order) and the selection.
         private final List<String[]> shelfRows = new ArrayList<>();
         private final List<String> shelfOrder = new ArrayList<>();
@@ -138,6 +144,8 @@ public class SettingsActivity extends Activity {
         private boolean hasKey;
         private int screen = MAIN, focus;
         private boolean running, okDown, backDown, wasBusy;
+        private String teachMessage = "";
+        private int taughtUp;   // the taught key's release, swallowed
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
         private String errorShown;
         private final Spoken spoken;
@@ -231,6 +239,11 @@ public class SettingsActivity extends Activity {
                     return pickLabels.get(at) + (at == pickCurrent ? Ui.tr(", escolhido", ", selected") : "")
                             + ", " + (at + 1) + Ui.tr(" de ", " of ") + pickLabels.size();
                 }
+                case TV_TEACH:
+                    return Ui.tr("Aperte o botão TV do controle. Ou escolha: usar o padrão",
+                            "Press the remote's TV button. Or choose: use the default",
+                            "Pulsa el botón TV del control. O elige: usar el predeterminado")
+                            + (Prefs.tvKey() == 0 ? Ui.tr(". Em uso", ". In use", ". En uso") : "");
                 case SHELF_EDIT: {
                     int at = pickScroll + row;
                     if (at >= shelfRows.size()) return "";
@@ -252,6 +265,9 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_CHOICE) {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
                 height = CHOICE_H;
+            } else if (screen == TV_TEACH) {
+                top = LIST_TOP + TEACH_ROW;
+                height = LIST_ROW_H;
             } else {
                 top = LIST_TOP + 20 + row * (LIST_ROW_H + LIST_ROW_GAP);
                 height = LIST_ROW_H;
@@ -337,7 +353,8 @@ public class SettingsActivity extends Activity {
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
-                default: return Prefs.KEYS.length;
+                case TV_TEACH: return 1;
+                default: return keyRows().length;
             }
         }
 
@@ -365,7 +382,7 @@ public class SettingsActivity extends Activity {
             c.drawText(Ui.tr("Início e tela de descanso da TV", "Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
 
-            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else drawList(c);
+            if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c); else if (screen == TV_TEACH) drawTeach(c); else drawList(c);
         }
 
         private void drawMain(Canvas c, float seconds) {
@@ -562,6 +579,7 @@ public class SettingsActivity extends Activity {
 
         boolean onKey(KeyEvent e) {
             boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+            if ((screen == TV_TEACH || taughtUp != 0) && teach(e)) return true;
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                     if (down && focus > 0) focus--;
@@ -606,6 +624,9 @@ public class SettingsActivity extends Activity {
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
+                                screen = REMOTE_KEYS;
+                            } else if (screen == TV_TEACH) {
+                                focus = 1;
                                 screen = REMOTE_KEYS;
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? 3 : screen == REMOTE_KEYS ? 4 : 0;
@@ -669,19 +690,76 @@ public class SettingsActivity extends Activity {
             return on ? Ui.tr("Ligado", "On") : Ui.tr("Desligado", "Off");
         }
 
+        /**
+         * Remote Buttons' rows: the brand's key codes on TCL (the TV button among them) and Vestel (Netflix only, no TV
+         * button); elsewhere the TV button and "Teach the TV button" first, then TCL's app buttons, which only TCL
+         * remotes have.
+         */
+        private int[] keyRows() {
+            if (RemoteKeys.supported()) return Prefs.KEYS;
+            int[] rows = new int[2 + Prefs.KEYS.length - 1];
+            rows[0] = ROW_TV;
+            rows[1] = ROW_TEACH;
+            int i = 2;
+            for (int key : Prefs.KEYS) if (key != Prefs.KEY_TV) rows[i++] = key;
+            return rows;
+        }
+
+        private String keyLabel(int row) {
+            switch (row) {
+                case ROW_TV: case Prefs.KEY_TV: return Ui.tr("Botão TV", "TV button", "Botón TV");
+                case ROW_TEACH: return Ui.tr("Ensinar o botão TV", "Teach the TV button", "Enseñar el botón TV");
+                case Prefs.KEY_NETFLIX: case Prefs.KEY_VESTEL_NETFLIX: return Ui.tr("Botão Netflix", "Netflix button");
+                case Prefs.KEY_YOUTUBE: return Ui.tr("Botão YouTube", "YouTube button");
+                case Prefs.KEY_PRIME: return Ui.tr("Botão Prime Video", "Prime Video button");
+                case Prefs.KEY_TCL_CHANNEL: return Ui.tr("Botão TCL Channel", "TCL Channel button");
+                default: return "";
+            }
+        }
+
         private String[] keyLabels() {
-            if (RemoteKeys.VESTEL) return new String[] {Ui.tr("Botão Netflix", "Netflix button")};
-            return new String[] {Ui.tr("Botão Netflix", "Netflix button"), Ui.tr("Botão YouTube", "YouTube button"),
-                    Ui.tr("Botão Prime Video", "Prime Video button"), Ui.tr("Botão TCL Channel", "TCL Channel button")};
+            int[] rows = keyRows();
+            String[] v = new String[rows.length];
+            for (int i = 0; i < v.length; i++) v[i] = keyLabel(rows[i]);
+            return v;
         }
 
         private String[] keyValues() {
-            String[] v = new String[Prefs.KEYS.length];
+            int[] rows = keyRows();
+            String[] v = new String[rows.length];
             for (int i = 0; i < v.length; i++) {
-                int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[i]));
-                v[i] = at >= 0 ? appLabels.get(at) : Ui.tr("Não instalado", "Not installed");
+                v[i] = rows[i] == ROW_TEACH ? (Prefs.tvKey() == 0 ? Ui.tr("Padrão", "Default", "Predeterminado") : Ui.tr("Ensinado", "Taught", "Enseñado"))
+                        : choiceName(keyChoice(rows[i]));
             }
             return v;
+        }
+
+        /** What a row's button opens now: an app's package, Prefs.LIVE_TV, or "" (nothing). */
+        private String keyChoice(int row) {
+            return row == ROW_TV ? Prefs.tvApp() : Prefs.keyApp(row);
+        }
+
+        private void setKeyChoice(int row, String what) {
+            if (row == ROW_TV) {
+                Prefs.setTvApp(what);
+                HomeMode.syncRemoteService(getContext());   // other brands: the key service only while it opens something
+            } else {
+                Prefs.setKeyApp(row, what);
+            }
+        }
+
+        /** What a row can open: the apps after "Nothing"; the TV button also live TV, first. */
+        private List<String> keyChoices(int row) {
+            List<String> out = new ArrayList<>();
+            if (row == ROW_TV || row == Prefs.KEY_TV) out.add(Prefs.LIVE_TV);
+            out.addAll(appPkgs);
+            return out;
+        }
+
+        private String choiceName(String what) {
+            if (what.equals(Prefs.LIVE_TV)) return Ui.tr("TV ao vivo", "Live TV", "TV en vivo");
+            int at = appPkgs.indexOf(what);
+            return at >= 0 ? appLabels.get(at) : Ui.tr("Não instalado", "Not installed");
         }
 
         /** Installed TV apps, by name, after "Nothing": what a remote button can open. */
@@ -709,10 +787,13 @@ public class SettingsActivity extends Activity {
         /** Changes the focused row's value one step (OK and → go forward, ← goes back). */
         private void adjust(int dir) {
             if (screen == REMOTE_KEYS) {
-                int n = appPkgs.size();
-                int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[focus]));
+                int row = keyRows()[focus];
+                if (row == ROW_TEACH) return;   // no value to step through: OK opens it
+                List<String> choices = keyChoices(row);
+                int n = choices.size();
+                int at = choices.indexOf(keyChoice(row));
                 int next = at < 0 ? (dir > 0 ? 0 : n - 1) : (at + dir + n) % n;
-                Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
+                setKeyChoice(row, choices.get(next));
                 return;
             }
             switch (focus) {
@@ -885,8 +966,11 @@ public class SettingsActivity extends Activity {
                 for (String[] city : cities) pickLabels.add(city[0]);
                 pickCurrent = -1;
             } else {
-                pickLabels.addAll(appLabels);
-                pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[which - 1]));
+                int row = keyRows()[which - 1];
+                pickValues.clear();
+                pickValues.addAll(keyChoices(row));
+                for (String what : pickValues) pickLabels.add(choiceName(what));
+                pickCurrent = pickValues.indexOf(keyChoice(row));
             }
             int visible = Math.min(PICK_VISIBLE, pickLabels.size());
             int at = Math.max(0, pickCurrent);
@@ -946,9 +1030,78 @@ public class SettingsActivity extends Activity {
                         "YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
                         : RemoteKeys.supported() ? Ui.tr("Disney e Globoplay: a própria TV controla esses botões.",
                         "Disney and Globoplay: the TV itself controls those buttons.")
-                        : Ui.tr("Esses são os botões do controle da TCL: nesta TV, os botões funcionam como sempre.",
-                        "These are the TCL remote's buttons: on this TV, the buttons work as they always did."), LIST_X * k + 30 * k, hy + 38 * k, hint);
+                        : Ui.tr("Netflix, YouTube, Prime e TCL Channel são do controle da TCL: nesta TV, funcionam como sempre.",
+                        "Netflix, YouTube, Prime and TCL Channel are the TCL remote's: on this TV, they work as they always did."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }
+        }
+
+        /** "Teach the TV button" (other brands): the next vendor key pressed becomes the TV button. */
+        private void drawTeach(Canvas c) {
+            float x = LIST_X * k + 30 * k;
+            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            c.drawText(Ui.tr("Ensinar o botão TV", "Teach the TV button", "Enseñar el botón TV"), x, (LIST_TOP - 24) * k, heading);
+            c.drawText(Ui.tr("Aperte o botão TV do controle.", "Press the remote's TV button.", "Pulsa el botón TV del control."),
+                    x, (LIST_TOP + 40) * k, rowLabel);
+            c.drawText(Ui.tr("Só para controles cujo botão TV não funciona sozinho.",
+                    "Only for remotes whose TV button doesn't work by itself.",
+                    "Solo para controles cuyo botón TV no funciona solo."), x, (LIST_TOP + 82) * k, rowSub);
+            if (!teachMessage.isEmpty()) c.drawText(teachMessage, x, (LIST_TOP + 124) * k, warn);
+            rowRect.set(rowBox(0));
+            float f = drawRowBackground(c, 0);
+            rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
+            c.drawText(Ui.tr("Usar o padrão", "Use the default", "Usar el predeterminado"), rowRect.left + 30 * k,
+                    rowRect.centerY() + Ui.halfCap(rowLabel), rowLabel);
+            if (Prefs.tvKey() == 0) {
+                float cw = Symbols.width(getContext(), "check", 26 * k);
+                Symbols.draw(getContext(), c, "check", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, INK, f));
+            }
+            rowLabel.setColor(0xF2FFFFFF);
+        }
+
+        /**
+         * On "Teach the TV button": takes the pressed key if it's a vendor code, or says why not. True if the key was
+         * used here. Android's own keys (play/pause, channels, numbers…) are left to the apps: taught, every app would
+         * lose them.
+         */
+        private boolean teach(KeyEvent e) {
+            int code = e.getKeyCode();
+            if (e.getAction() == KeyEvent.ACTION_UP) {
+                if (code != taughtUp) return false;
+                taughtUp = 0;
+                return true;
+            }
+            if (screen != TV_TEACH || e.getRepeatCount() > 0) return false;
+            switch (code) {
+                case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_DPAD_DOWN: case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_NUMPAD_ENTER: case KeyEvent.KEYCODE_BACK:
+                case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN: case KeyEvent.KEYCODE_VOLUME_MUTE:
+                    return false;   // the screen's own keys, and the volume
+                default:
+                    break;
+            }
+            if (code == KeyEvent.KEYCODE_TV) {
+                teachMessage = Ui.tr("Esse é o botão TV padrão: ele já funciona.", "That's the standard TV button: it already works.",
+                        "Ese es el botón TV estándar: ya funciona.");
+            } else if (!RemoteKeys.teachable(code)) {
+                teachMessage = Ui.tr("Esse botão é do Android e fica com os apps. Aperte o botão TV.",
+                        "That button is Android's and stays with the apps. Press the TV button.",
+                        "Ese botón es de Android y queda con las apps. Pulsa el botón TV.");
+            } else {
+                Prefs.setTvKey(code);
+                taughtUp = code;
+                AppLog.w("TV button taught: " + code);
+                screen = REMOTE_KEYS;
+                focus = 1;
+                for (Spring s : pop) s.snap(0);
+                invalidate();
+                announceForAccessibility(Ui.tr("Pronto: esse é o botão TV agora.", "Done: that's the TV button now.", "Listo: ese es el botón TV ahora."));
+                spoken.focusMoved();
+                return true;
+            }
+            announceForAccessibility(teachMessage);
+            invalidate();
+            return true;
         }
 
         private void activate() {
@@ -970,9 +1123,18 @@ public class SettingsActivity extends Activity {
                 screen = HOME_SETTINGS;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
-                Prefs.setKeyApp(Prefs.KEYS[pickFor - 1], appPkgs.get(at));
+                setKeyChoice(keyRows()[pickFor - 1], pickValues.get(at));
                 focus = pickFor - 1;
                 screen = REMOTE_KEYS;
+            } else if (screen == TV_TEACH) {
+                Prefs.setTvKey(0);
+                focus = 1;
+                screen = REMOTE_KEYS;
+                announceForAccessibility(Ui.tr("Botão TV: padrão.", "TV button: default.", "Botón TV: predeterminado."));
+            } else if (screen == REMOTE_KEYS && keyRows()[focus] == ROW_TEACH) {
+                teachMessage = "";
+                focus = 0;
+                screen = TV_TEACH;
             } else if (screen == SHELF_EDIT) {
                 toggleShelfApp();
                 invalidate();

@@ -34,9 +34,10 @@ before you do it, and let them do the taps on the TV.
    TCL's `TclAppBoot` blocks background jobs by default, so the switch (and the watchdog) never run. The log shows
    `forbid bind service ... ModeJob`.
 7. **Tell them what the switch does** before they make it: the home screen and screensaver change, a short list of
-   promo apps is turned off (never uninstalled), and *Original* brings it all back. On TCL, the remote's Netflix,
-   YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons
-   (*Free My TV* → *Remote Buttons* picks what each opens); *Original* turns it off.
+   promo apps is turned off (never uninstalled), and *Original* brings it all back. On TCL, the remote's TV,
+   Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those
+   buttons (*Free My TV* → *Remote Buttons* picks what each opens; the TV button opens live TV). On other brands the
+   service stays off until they pick what the TV button opens there; *Original* turns it off.
 8. **They switch on the TV:** *Free My TV* → *Home Screen* → *Free My TV*. The app uses the TV's own ADB on
    127.0.0.1 with its own key, so the TV asks once more to allow debugging. Don't switch modes from the computer.
    If the TV's Wi-Fi was saved during its first setup, the switch stops before changing anything and asks them to
@@ -155,13 +156,18 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
-- The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and
-  Vestel TVs, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
-  services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
-  in `remote-keys.txt` (`Prefs.keyApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work.
+- The remote's buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes on TCL (the TV button, 4001,
+  among them) and Vestel TVs; on other brands only the TV button (Android's `KEYCODE_TV`, or a vendor code taught in
+  Remote Buttons), and the service is on there only while it opens something. It is on only in Free My TV mode, and
+  *Original* takes it out of the enabled accessibility services. Besides those buttons it only notes the package of
+  the app on screen (so the TV button is left to live TV and to our own screens). The system waits for the service on
+  every key, so it lives alone in the `:keys` process: what it reads is in `remote-keys.txt` (`Prefs.keyApp`,
+  `Prefs.tvApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work: what each button opens is looked up
+  beforehand on a thread of its own, the launch is posted, and each press is decided once, on its down. A key with
+  nothing to open goes on to the apps.
   Vestel (F&U and other store brands; MediaTek, Android TV 14 tested) maps its Netflix button to `KEYCODE_STEM_1`, a
   global key (`dumpsys window policy` lists them) that the key filter sees first; its YouTube, Prime Video and Google
-  Play buttons stay with the system. The stock lists needed no Vestel entries.
+  Play buttons stay with the system, and it has no TV button here. The stock lists needed no Vestel entries.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 - LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017; only transform and opacity animate. `web/tv.js` is the

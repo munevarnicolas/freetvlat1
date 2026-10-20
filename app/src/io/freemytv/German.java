@@ -127,7 +127,19 @@ final class German {
             case "OK picks, Back cancels.": return "OK wählt aus, Zurück bricht ab.";
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Disney und Globoplay: Diese Tasten steuert der Fernseher selbst.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "YouTube, Prime Video und Google Play: Diese Tasten steuert der Fernseher selbst.";
-            case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Das sind die Tasten der TCL-Fernbedienung: Auf diesem Fernseher funktionieren sie wie immer.";
+            case "Netflix, YouTube, Prime and TCL Channel are the TCL remote's: on this TV, they work as they always did.": return "Netflix, YouTube, Prime und TCL Channel sind Tasten der TCL-Fernbedienung: Auf diesem Fernseher funktionieren sie wie immer.";
+            case "TV button": return "TV-Taste";
+            case "Teach the TV button": return "TV-Taste anlernen";
+            case "Default": return "Standard";
+            case "Taught": return "Angelernt";
+            case "Press the remote's TV button.": return "Drücke die TV-Taste der Fernbedienung.";
+            case "Only for remotes whose TV button doesn't work by itself.": return "Nur für Fernbedienungen, deren TV-Taste nicht von selbst funktioniert.";
+            case "Use the default": return "Standard verwenden";
+            case "That's the standard TV button: it already works.": return "Das ist die Standard-TV-Taste: Sie funktioniert schon.";
+            case "That button is Android's and stays with the apps. Press the TV button.": return "Diese Taste gehört zu Android und bleibt bei den Apps. Drücke die TV-Taste.";
+            case "Done: that's the TV button now.": return "Fertig: Das ist jetzt die TV-Taste.";
+            case "TV button: default.": return "TV-Taste: Standard.";
+            case "Press the remote's TV button. Or choose: use the default": return "Drücke die TV-Taste der Fernbedienung. Oder wähle: Standard verwenden";
             default:
                 if (english.startsWith("Free My TV is on: new home screen and screensaver, ")) {
                     return "Free My TV ist an: neuer Startbildschirm und Bildschirmschoner, "

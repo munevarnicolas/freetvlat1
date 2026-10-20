@@ -22,11 +22,13 @@ final class Prefs {
     private Prefs() {}
 
     /** Remote keys we handle, with the app each opens until the user picks another. Codes read from the TCL's log. */
-    static final int KEY_NETFLIX = 4062, KEY_YOUTUBE = 190, KEY_PRIME = 4099, KEY_TCL_CHANNEL = 4020;
+    static final int KEY_TV = 4001, KEY_NETFLIX = 4062, KEY_YOUTUBE = 190, KEY_PRIME = 4099, KEY_TCL_CHANNEL = 4020;
     /** Vestel's Netflix button: STEM_1, which the TV hands to its Netflix key receiver (dumpsys window policy). */
     static final int KEY_VESTEL_NETFLIX = KeyEvent.KEYCODE_STEM_1;
     static final int[] KEYS = RemoteKeys.VESTEL ? new int[] {KEY_VESTEL_NETFLIX}
-            : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
+            : new int[] {KEY_TV, KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
+    /** A button's choice that isn't an app: live TV (the TV button's default on TCL). */
+    static final String LIVE_TV = "live";
 
     /** Bumped by every change: screens compare it to know when to redraw. */
     static volatile int version;
@@ -124,6 +126,7 @@ final class Prefs {
 
     private static String defaultApp(int keyCode) {
         switch (keyCode) {
+            case KEY_TV: return LIVE_TV;
             case KEY_NETFLIX: case KEY_VESTEL_NETFLIX: return "com.netflix.ninja";
             case KEY_YOUTUBE: return "com.google.android.youtube.tv";
             case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
@@ -141,6 +144,9 @@ final class Prefs {
 
     private static final String[] keyApps = new String[KEYS.length];   // null = the default
     private static long keysStamp = Long.MIN_VALUE;
+    // Other brands' TV button (TCL's is KEY_TV above): what it opens ("" = nothing) and a vendor code taught for it.
+    private static String tvApp = "";
+    private static int tvKey, keysLoads;
 
     /** A temporary file per process (two can start together after an update), synced before it replaces the old one. */
     private static boolean writeKeys(String text) {
@@ -168,35 +174,89 @@ final class Prefs {
         writeKeys(sb.toString());
     }
 
+    /** Reads the file again if it changed since the last look (called holding keyApps). */
+    private static void loadKeys() {
+        File f = keysFile();
+        long stamp = f.lastModified() * 31 + f.length();   // 0 without the file: every key opens its default
+        if (stamp == keysStamp) return;
+        keysStamp = stamp;
+        keysLoads++;
+        java.util.Arrays.fill(keyApps, null);
+        tvApp = "";
+        tvKey = 0;
+        if (stamp == 0) return;
+        try (BufferedReader r = new BufferedReader(new FileReader(f))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("tv=")) tvApp = line.substring(3);
+                else if (line.startsWith("tvkey=")) {
+                    int key = number(line.substring(6));
+                    tvKey = RemoteKeys.teachable(key) ? key : 0;   // vendor codes only, whatever the file says
+                }
+                for (int i = 0; i < KEYS.length; i++) {
+                    String prefix = KEYS[i] + "=";
+                    if (line.startsWith(prefix)) keyApps[i] = line.substring(prefix.length());
+                }
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static int number(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** Package the key opens ("" = nothing). */
     static String keyApp(int keyCode) {
         synchronized (keyApps) {
-            File f = keysFile();
-            long stamp = f.lastModified() * 31 + f.length();   // 0 without the file: every key opens its default
-            if (stamp != keysStamp) {
-                keysStamp = stamp;
-                java.util.Arrays.fill(keyApps, null);
-                if (stamp != 0) {
-                    try (BufferedReader r = new BufferedReader(new FileReader(f))) {
-                        String line;
-                        while ((line = r.readLine()) != null) {
-                            for (int i = 0; i < KEYS.length; i++) {
-                                String prefix = KEYS[i] + "=";
-                                if (line.startsWith(prefix)) keyApps[i] = line.substring(prefix.length());
-                            }
-                        }
-                    } catch (IOException ignored) {
-                    }
-                }
-            }
+            loadKeys();
             for (int i = 0; i < KEYS.length; i++) if (KEYS[i] == keyCode && keyApps[i] != null) return keyApps[i];
             return defaultApp(keyCode);
         }
     }
 
-    static void setKeyApp(int keyCode, String pkg) {
+    /** Other brands' TV button: LIVE_TV, an app, or "" (nothing, the default: the key service then stays off). */
+    static String tvApp() {
+        synchronized (keyApps) {
+            loadKeys();
+            return tvApp;
+        }
+    }
+
+    /** A vendor code taught for other brands' TV button, or 0. */
+    static int tvKey() {
+        synchronized (keyApps) {
+            loadKeys();
+            return tvKey;
+        }
+    }
+
+    /** Other brands' TV button: Android's own key, or the taught one. */
+    static boolean isTvKey(int keyCode) {
+        // A vendor code is checked before the choice is read: Android's other keys never get that far.
+        return keyCode == KeyEvent.KEYCODE_TV || (RemoteKeys.teachable(keyCode) && keyCode == tvKey());
+    }
+
+    /** Goes up each time the choices are read again from the file (another process changed them). */
+    static int keysLoads() {
+        synchronized (keyApps) {
+            loadKeys();
+            return keysLoads;
+        }
+    }
+
+    static void setKeyApp(int keyCode, String pkg) { saveKeys(keyCode, pkg, tvApp(), tvKey()); }
+    static void setTvApp(String what) { saveKeys(0, null, what, tvKey()); }
+    static void setTvKey(int keyCode) { saveKeys(0, null, tvApp(), keyCode); }
+
+    private static void saveKeys(int keyCode, String pkg, String tv, int key) {
         StringBuilder sb = new StringBuilder();
-        for (int key : KEYS) sb.append(key).append('=').append(key == keyCode ? pkg : keyApp(key)).append('\n');
+        for (int k : KEYS) sb.append(k).append('=').append(k == keyCode ? pkg : keyApp(k)).append('\n');
+        sb.append("tv=").append(tv).append('\n').append("tvkey=").append(key).append('\n');
         if (writeKeys(sb.toString())) version++;
     }
 }
