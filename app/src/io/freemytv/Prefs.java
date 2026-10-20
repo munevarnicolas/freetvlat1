@@ -55,12 +55,12 @@ final class Prefs {
 
     // MARK: - Language and units
 
-    /** "auto", "pt", "en", "es", "de" or "ru". */
+    /** "auto", "pt", "en", "es", "de", "it" or "ru". */
     static String language() {
         String v = app == null ? Config.LANGUAGE : sp().getString("language", Config.LANGUAGE);
         v = v.trim().toLowerCase(Locale.ROOT);
         return v.startsWith("ru") ? "ru" : v.startsWith("pt") ? "pt" : v.startsWith("es") ? "es" : v.startsWith("de") ? "de"
-                : v.startsWith("en") ? "en" : "auto";
+                : v.startsWith("it") ? "it" : v.startsWith("en") ? "en" : "auto";
     }
 
     static void setLanguage(String v) { put("language", v); Ui.applyLanguage(); }
