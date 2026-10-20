@@ -240,6 +240,9 @@ final class HomeApps {
         return out;
     }
 
+    /** Wider logos than this (width / height) are wordmarks: the button shows the initials instead. */
+    private static final float MARK_MAX_ASPECT = 2.2f;
+
     // Masks made once per process: by logo (the logos themselves are cached in LOGOS) and by initials.
     private static final Map<Bitmap, Bitmap> LOGO_MARKS = new java.util.IdentityHashMap<>();
     private static final Map<String, Bitmap> LETTER_MARKS = new HashMap<>();
@@ -257,6 +260,8 @@ final class HomeApps {
                 if (!LOGO_MARKS.containsKey(logo)) LOGO_MARKS.put(logo, logoMark(logo));
                 it.mark = LOGO_MARKS.get(logo);
             }
+            // A wordmark ("NETFLIX", "▶ YouTube") can't be read inside a 68 px circle: its initials read better.
+            if (it.mark != null && it.mark.getWidth() > it.mark.getHeight() * MARK_MAX_ASPECT) it.mark = null;
         }
         if (it.mark == null) {
             String letters = initials(d != null ? d[1] : it.label);
