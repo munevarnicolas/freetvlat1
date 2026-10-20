@@ -91,6 +91,20 @@ With Claude Code, say *"Install Free My TV on my LG TV at 192.168.1.50. I live i
 
 Developer Mode lasts about 40 days: open the Developer Mode app now and then and press **EXTEND**. To remove Free My TV, run `python3 webos/install.py 192.168.1.50 --uninstall`.
 
+### When installed apps do not appear
+
+Some LG firmware denies third-party apps permission to list installed apps. If the shelf and All Apps are empty, collect the TV's inventory from your computer:
+
+```bash
+python3 -m pip install websocket-client
+python3 webos/sync_apps.py
+python3 webos/build.py
+```
+
+Enter the TV's IP address at the hidden prompt and accept **Free My TV Setup** on the TV. Then install the rebuilt package using step 3 above. The sync helper saves only app IDs, names and colors in the git-ignored `webos/apps.local.json`; the address and pairing key stay in memory. `--generic` excludes this inventory and cannot be combined with `--apps`.
+
+Free My TV uses this inventory only when the native list is unavailable. It checks each known app through LG's public API and removes confirmed uninstalled apps; an unavailable check preserves the entry. Icons use the existing text fallback. After installing new apps on the TV, run the sync and build commands again, then reinstall Free My TV.
+
 ## Samsung TVs (Tizen)
 
 The same home screen as a Samsung app, with everything the LG one has: the picks, the shelf, the drawer with the inputs, the weather and the prices, day and night, and its own settings. It installs through Samsung's own Developer Mode, with nothing rooted or changed on the TV, and Samsung's home screen stays where it is.

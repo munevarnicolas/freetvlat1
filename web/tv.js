@@ -13,24 +13,30 @@ var TV = (function () {
   var calls = [];   // a bridge is collected if nothing holds it before its reply arrives
 
   /** One Luna call; done(result) with null on failure. */
-  function luna(uri, params, done) {
+  function luna(uri, params, done, timeout) {
     if (!webos) {
       if (done) setTimeout(function () { done(null); }, 0);
       return;
     }
     var bridge = new window.PalmServiceBridge();
     calls.push(bridge);
-    var finished = false;
-    bridge.onservicecallback = function (message) {
+    var finished = false, timer;
+    function finish(message) {
       if (finished) return;
       finished = true;
+      if (timer) clearTimeout(timer);
       var i = calls.indexOf(bridge);
       if (i >= 0) calls.splice(i, 1);
       var result = null;
       try { result = JSON.parse(message); } catch (e) {}
       if (done) done(result && result.returnValue !== false ? result : null);
-    };
-    bridge.call(uri, JSON.stringify(params || {}));
+    }
+    bridge.onservicecallback = finish;
+    if (timeout) timer = setTimeout(function () {
+      finish(null);
+      try { bridge.cancel(); } catch (e) {}
+    }, timeout);
+    try { bridge.call(uri, JSON.stringify(params || {})); } catch (e) { finish(null); }
   }
 
   // LG inputs: the antenna and the four HDMI ports, with the apps LG opens for them.
@@ -64,6 +70,28 @@ var TV = (function () {
   if (webos && window.PalmSystem && window.PalmSystem.identifier) self = window.PalmSystem.identifier.split(' ')[0];
   if (samsung) {
     try { self = window.tizen.application.getCurrentApplication().appInfo.id; } catch (e) {}
+  }
+
+  /** A paired install's inventory when the TV denies enumeration to third-party apps. */
+  function configuredWebosApps(done) {
+    var saved = window.CONFIG && window.CONFIG.webosApps, apps = [], ids = [];
+    if (!Array.isArray(saved)) { done([]); return; }
+    for (var i = 0; i < saved.length; i++) {
+      var a = saved[i];
+      if (!a || typeof a.id !== 'string' || !a.id || a.id === self || HIDDEN.test(a.id) || ids.indexOf(a.id) >= 0) continue;
+      ids.push(a.id);
+      apps.push({id: a.id, title: a.title || a.id, icon: '', color: a.color || ''});
+    }
+    var remaining = apps.length;
+    if (!remaining) { done([]); return; }
+    apps.forEach(function (app, index) {
+      luna('luna://com.webos.applicationManager/getAppLoadStatus', {appId: app.id}, function (res) {
+        // A denied or unavailable check does not mean an inventoried app was removed.
+        if (res && res.exist === false) apps[index] = null;
+        remaining--;
+        if (!remaining) done(apps.filter(function (a) { return a !== null; }));
+      }, 2000);
+    });
   }
 
   // MARK: - Samsung
@@ -171,6 +199,7 @@ var TV = (function () {
         return;
       }
       luna('luna://com.webos.applicationManager/listLaunchPoints', {}, function (res) {
+        if (!res || !Array.isArray(res.launchPoints)) { configuredWebosApps(done); return; }
         var out = [];
         var points = res && res.launchPoints ? res.launchPoints : [];
         for (var i = 0; i < points.length; i++) {
@@ -179,7 +208,7 @@ var TV = (function () {
           out.push({id: p.id, title: p.title || p.id, icon: p.largeIcon || p.icon || '', color: p.bgColor || p.iconColor || ''});
         }
         done(out);
-      });
+      }, 3000);
     },
 
     /** Opens an app (or an input); done(ok). */

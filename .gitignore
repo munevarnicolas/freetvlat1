@@ -1,5 +1,6 @@
 # Your settings and signing key stay on your machine
 config.properties
+webos/apps.local.json
 *.keystore
 *.idsig
 
