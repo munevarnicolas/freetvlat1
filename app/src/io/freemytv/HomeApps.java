@@ -89,6 +89,8 @@ final class HomeApps {
         {"paramount", "Paramount+", "com.cbs.ott", "0064FF", "", "1"},
         {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
         {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
+        {"crunchyroll", "Crunchyroll", "com.crunchyroll.crunchyroid", "F47521", "", "1"},
+        {"jellyfin", "Jellyfin", "org.jellyfin.androidtv", "AA5CC3", "", "1"},
         {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
     };
     static final int MAX_SHELF = 8;

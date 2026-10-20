@@ -72,6 +72,8 @@
     ['paramount', /paramount|cbs/, /paramount/i, ['#0064FF', '#002A86']],
     ['peacock', /peacock/, /peacock/i, ['#1C1C1E', '#000000']],
     ['globoplay', /globoplay/, /globoplay/i, ['#FF8A1F', '#FF2D5A']],
+    ['crunchyroll', /crunchyroll/, /crunchyroll/i, ['#F47521', '#C2410C']],
+    ['jellyfin', /jellyfin/, /jellyfin/i, ['#AA5CC3', '#00A4DC']],
     ['spotify', /spotify/, /spotify/i, ['#1DB954', '#0F7A36']]
   ];
   var MAX_SHELF = 8;
