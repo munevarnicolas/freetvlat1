@@ -381,6 +381,18 @@ final class HomeData {
             if (code >= 95) return "Gewitter";
             return "Regen";
         }
+        if (Ui.it) {
+            if (code == 0) return day ? "Soleggiato" : "Sereno";
+            if (code == 1) return "Poco nuvoloso";
+            if (code == 2) return "Parzialmente nuvoloso";
+            if (code == 3) return "Nuvoloso";
+            if (code == 45 || code == 48) return "Nebbia";
+            if (code >= 51 && code <= 57) return "Pioggerella";
+            if (code == 65 || code == 67 || code == 82) return "Pioggia forte";
+            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Neve";
+            if (code >= 95) return "Temporale";
+            return "Pioggia";
+        }
         if (code == 0) return day ? "Céu limpo" : "Noite limpa";
         if (code == 1) return "Poucas nuvens";
         if (code == 2) return "Parcialmente nublado";
@@ -425,7 +437,7 @@ final class HomeData {
 
     static String hour(long at) {
         return Ui.once("hour", at, () -> Ui.en ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
-                : new SimpleDateFormat(Ui.es || Ui.ru ? "HH:mm" : Ui.de ? "HH 'Uhr'" : "HH'h'", Ui.locale()).format(new java.util.Date(at)));
+                : new SimpleDateFormat(Ui.es || Ui.it || Ui.ru ? "HH:mm" : Ui.de ? "HH 'Uhr'" : "HH'h'", Ui.locale()).format(new java.util.Date(at)));
     }
 
     /** How long ago the data was fetched, if it's stale (no internet): "12 min ago". */
@@ -438,6 +450,7 @@ final class HomeData {
         if (Ui.ru) return minutes < 60 ? minutes + " мин назад" : (minutes / 60) + " ч назад";
         if (Ui.es) return minutes < 60 ? "hace " + minutes + " min" : "hace " + (minutes / 60) + " h";
         if (Ui.de) return minutes < 60 ? "vor " + minutes + " Min." : "vor " + (minutes / 60) + " Std.";
+        if (Ui.it) return minutes < 60 ? minutes + " min fa" : (minutes / 60) + " h fa";
         return minutes < 60 ? "há " + minutes + " min" : "há " + (minutes / 60) + " h";
     }
 }
