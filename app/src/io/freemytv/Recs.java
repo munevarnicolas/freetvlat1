@@ -566,6 +566,10 @@ final class Recs {
     }
 
     private boolean installed(String pkg) {
+        // Services listed in hide_services (config.properties) never supply picks, even if their app is on the TV.
+        for (String[] s : SERVICES) {
+            if (s[2].equals(pkg) && ("," + Config.HIDE_SERVICES + ",").contains("," + s[1] + ",")) return false;
+        }
         return HomeApps.launchIntent(context.getPackageManager(), pkg) != null;
     }
 

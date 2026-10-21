@@ -119,6 +119,8 @@ final class Russian {
             case "YouTube button": return "Кнопка YouTube";
             case "Prime Video button": return "Кнопка Prime Video";
             case "TCL Channel button": return "Кнопка TCL Channel";
+            case "Google Play button": return "Кнопка Google Play";
+            case "The Google Play button on the Sony remote.": return "Кнопка Google Play на пульте Sony.";
             case "Nothing": return "Ничего";
             case "Not installed": return "Не установлено";
             case ", selected": return ", выбрано";
