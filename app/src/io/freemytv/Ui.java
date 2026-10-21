@@ -29,34 +29,45 @@ final class Ui {
     static final boolean LEGACY = Build.VERSION.SDK_INT < 31;
     static final Locale RU = new Locale("ru", "RU");
     static final Locale PT = new Locale("pt", "BR");
-    /** English, Portuguese, Spanish, German or Russian, from the settings or, with "auto", the TV's own language. */
+    static final Locale TH = new Locale("th", "TH");
+    /** English, Portuguese, Spanish, German, Russian or Thai, from the settings or, with "auto", the TV's own language. */
     static volatile String language = language();
     static volatile boolean en = "en".equals(language), es = "es".equals(language), de = "de".equals(language),
-            ru = "ru".equals(language);
+            ru = "ru".equals(language), th = "th".equals(language);
     static Typeface thin, light, displayMedium, displaySemibold, regular, medium, semibold;
     private static boolean loaded;
     private static final Rect BOUNDS = new Rect();
     private static final RectF OVAL = new RectF();
 
+    private static AssetManager assets;
+
     static synchronized void init(Context c) {
         if (loaded) return;
         loaded = true;
-        AssetManager a = c.getAssets();
-        thin = font(a, 32, 200);
-        light = font(a, 32, 300);
-        displayMedium = font(a, 32, 500);
-        displaySemibold = font(a, 32, 600);
-        regular = font(a, 14, 400);
-        medium = font(a, 14, 500);
-        semibold = font(a, 14, 600);
+        assets = c.getAssets();
+        buildFonts();
+    }
+
+    /** (Re)build the typefaces for the language in use: Thai needs its own font (Inter has no Thai glyphs). */
+    private static synchronized void buildFonts() {
+        if (assets == null) return;
+        thin = font(assets, 32, 200);
+        light = font(assets, 32, 300);
+        displayMedium = font(assets, 32, 500);
+        displaySemibold = font(assets, 32, 600);
+        regular = font(assets, 14, 400);
+        medium = font(assets, 14, 500);
+        semibold = font(assets, 14, 600);
     }
 
     /** Inter at an optical size (14 = text, 32 = display) and weight; the system font if the file is missing. */
     private static Typeface font(AssetManager a, int opticalSize, int weight) {
-        if (has(a, FONT)) {
+        String path = th ? FONT_THAI : FONT;
+        if (has(a, path)) {
             try {
-                Typeface t = new Typeface.Builder(a, FONT)
-                        .setFontVariationSettings("'opsz' " + opticalSize + ", 'wght' " + weight).build();
+                // Noto Sans Thai has a weight axis but no optical-size axis; Inter has both.
+                String vars = th ? ("'wght' " + weight) : ("'opsz' " + opticalSize + ", 'wght' " + weight);
+                Typeface t = new Typeface.Builder(a, path).setFontVariationSettings(vars).build();
                 if (t != null) return t;
             } catch (RuntimeException ignored) {
             }
@@ -65,13 +76,14 @@ final class Ui {
     }
 
     private static final String FONT = "fonts/InterVariable.ttf";
+    private static final String FONT_THAI = "fonts/NotoSansThai.ttf";
 
     /** "pt", "es", "de", "ru" or "en": the one picked (TV settings or config.properties), or with "auto" the TV's own, else English. */
     private static String language() {
         String lang = Prefs.language();
         if (!lang.equals("auto")) return lang;
         lang = Locale.getDefault().getLanguage();
-        return "pt".equals(lang) || "es".equals(lang) || "de".equals(lang) || "ru".equals(lang) ? lang : "en";
+        return "pt".equals(lang) || "es".equals(lang) || "de".equals(lang) || "ru".equals(lang) || "th".equals(lang) ? lang : "en";
     }
 
     /** After the language changes in the settings (and once Prefs can read them). */
@@ -81,6 +93,8 @@ final class Ui {
         es = "es".equals(language);
         de = "de".equals(language);
         ru = "ru".equals(language);
+        th = "th".equals(language);
+        buildFonts();   // Thai uses its own font; reload when the language changes at runtime
     }
 
     private static boolean has(AssetManager a, String path) {
@@ -138,16 +152,16 @@ final class Ui {
     }
 
     static String tr(String pt, String english) {
-        return de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
+        return th ? Thai.text(english) : de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
     }
 
     /** German comes from German.java here too (keyed by the English, with patterns for text built at runtime). */
     static String tr(String pt, String english, String spanish) {
-        return de ? German.text(english) : ru ? Russian.text(english) : es ? spanish : en ? english : pt;
+        return th ? Thai.text(english) : de ? German.text(english) : ru ? Russian.text(english) : es ? spanish : en ? english : pt;
     }
 
     static Locale locale() {
-        return ru ? RU : es ? spanish() : de ? german() : en ? Locale.US : PT;
+        return th ? TH : ru ? RU : es ? spanish() : de ? german() : en ? Locale.US : PT;
     }
 
     /** The TV's own Spanish (es-MX, es-AR…) when it is in Spanish, Spain's otherwise. */
@@ -195,7 +209,8 @@ final class Ui {
 
     /** "domingo, 18 de outubro" (lowercase, like the iPhone in Portuguese); "Sunday, October 18" in English; "Sonntag, 18. Oktober". */
     static String date(long now) {
-        return ru ? new SimpleDateFormat("EEEE, d MMMM", locale()).format(new Date(now))
+        return th ? new SimpleDateFormat("EEEE d MMMM", locale()).format(new Date(now))
+                : ru ? new SimpleDateFormat("EEEE, d MMMM", locale()).format(new Date(now))
                 : en ? new SimpleDateFormat("EEEE, MMMM d", Locale.US).format(new Date(now))
                 : new SimpleDateFormat(de ? "EEEE, d. MMMM" : "EEEE, d 'de' MMMM", locale()).format(new Date(now));
     }

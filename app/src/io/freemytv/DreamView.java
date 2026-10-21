@@ -755,6 +755,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             String symbol = Symbols.weather(wx.code, wx.isDay);
             String now = HomeData.degrees(wx.temp);
             String range = Ui.ru ? "Макс. " + HomeData.degrees(wx.max) + "  Мин. " + HomeData.degrees(wx.min)
+                    : Ui.th ? "สูง " + HomeData.degrees(wx.max) + "  ต่ำ " + HomeData.degrees(wx.min)
                     : Ui.en ? "H:" + HomeData.degrees(wx.max) + "  L:" + HomeData.degrees(wx.min)
                     : Ui.de ? "H:" + HomeData.degrees(wx.max) + "  T:" + HomeData.degrees(wx.min)
                     : "Máx. " + HomeData.degrees(wx.max) + "  Mín. " + HomeData.degrees(wx.min);

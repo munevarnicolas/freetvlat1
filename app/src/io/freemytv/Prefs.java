@@ -60,7 +60,7 @@ final class Prefs {
         String v = app == null ? Config.LANGUAGE : sp().getString("language", Config.LANGUAGE);
         v = v.trim().toLowerCase(Locale.ROOT);
         return v.startsWith("ru") ? "ru" : v.startsWith("pt") ? "pt" : v.startsWith("es") ? "es" : v.startsWith("de") ? "de"
-                : v.startsWith("en") ? "en" : "auto";
+                : v.startsWith("th") ? "th" : v.startsWith("en") ? "en" : "auto";
     }
 
     static void setLanguage(String v) { put("language", v); Ui.applyLanguage(); }

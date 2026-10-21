@@ -60,6 +60,7 @@ final class Recs {
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
     static final String[] PERIOD_LABEL_ES = {"PARA ESTA MAÑANA", "PARA ESTA TARDE", "PARA ESTA NOCHE"};
     static final String[] PERIOD_LABEL_DE = {"HEUTE MORGEN", "HEUTE NACHMITTAG", "HEUTE ABEND"};
+    static final String[] PERIOD_LABEL_TH = {"เช้านี้", "บ่ายนี้", "คืนนี้"};
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -154,7 +155,7 @@ final class Recs {
     String error() { return error; }
 
     static String periodLabel() {
-        return (Ui.ru ? PERIOD_LABEL_RU : Ui.es ? PERIOD_LABEL_ES : Ui.de ? PERIOD_LABEL_DE : Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)
+        return (Ui.th ? PERIOD_LABEL_TH : Ui.ru ? PERIOD_LABEL_RU : Ui.es ? PERIOD_LABEL_ES : Ui.de ? PERIOD_LABEL_DE : Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)
                 [period(System.currentTimeMillis())];
     }
 
@@ -426,6 +427,7 @@ final class Recs {
         if (Ui.ru) return "ru-RU";
         if (Ui.es) return "ES".equals(java.util.Locale.getDefault().getCountry()) ? "es-ES" : "es-MX";
         if (Ui.de) return "de-DE";   // TMDB's de-AT and de-CH have few translations of their own
+        if (Ui.th) return "th-TH";
         return Ui.en ? "en-US" : "pt-BR";
     }
 
@@ -472,12 +474,14 @@ final class Recs {
             int minutes = o.optInt("runtime");
             if (minutes > 0 && Ui.ru) parts.add(minutes >= 60 ? (minutes / 60) + " ч " + (minutes % 60) + " мин" : minutes + " мин");
             else if (minutes > 0 && Ui.en) parts.add(minutes >= 60 ? (minutes / 60) + "h " + (minutes % 60) + "m" : minutes + "m");
+            else if (minutes > 0 && Ui.th) parts.add(minutes >= 60 ? (minutes / 60) + " ชม. " + (minutes % 60) + " นาที" : minutes + " นาที");
             else if (minutes > 0) parts.add(minutes >= 60 ? (minutes / 60) + " h " + (minutes % 60) + " min" : minutes + " min");
         } else {
             int seasons = o.optInt("number_of_seasons");
             if (seasons > 0 && Ui.ru) parts.add(Russian.count(seasons, "сезон", "сезона", "сезонов"));
             else if (seasons > 0 && Ui.en) parts.add(seasons == 1 ? "1 season" : seasons + " seasons");
             else if (seasons > 0 && Ui.de) parts.add(seasons == 1 ? "1 Staffel" : seasons + " Staffeln");
+            else if (seasons > 0 && Ui.th) parts.add(seasons + " ซีซัน");
             else if (seasons > 0) parts.add(seasons == 1 ? "1 temporada" : seasons + " temporadas");
         }
         JSONObject wp = o.optJSONObject("watch/providers");
@@ -530,6 +534,7 @@ final class Recs {
     };
 
     private static String genre(String name) {
+        if (Ui.th) return Thai.text(name);
         if (Ui.ru) return Russian.text(name);
         for (String[] g : Ui.es ? GENRES_ES : Ui.de ? GENRES_DE : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
         return name;
