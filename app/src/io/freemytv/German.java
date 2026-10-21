@@ -92,6 +92,7 @@ final class German {
             case "Language": return "Sprache";
             case "Temperature": return "Temperatur";
             case "Theme": return "Design";
+            case "Picks per tab": return "Empfehlungen pro Tab";
             case "Automatic": return "Automatisch";
             case "Light": return "Hell";
             case "Dark": return "Dunkel";
@@ -134,8 +135,8 @@ final class German {
                             + english.substring("Free My TV is on: new home screen and screensaver, ".length()).replace(" apps turned off.", " Apps ausgeschaltet.");
                 }
                 if (english.startsWith("On · ")) {
-                    return "An · " + english.substring(5).replace(" titles from the TV's apps, 3 new ones every hour.",
-                            " Titel aus den Apps des Fernsehers, 3 neue pro Stunde.");
+                    return "An · " + english.substring(5).replace(" titles from the TV's apps, new ones every hour.",
+                            " Titel aus den Apps des Fernsehers, neue jede Stunde.");
                 }
                 if (english.startsWith("OK adds or removes (up to ")) {
                     return "OK fügt hinzu oder entfernt (bis zu " + english.substring("OK adds or removes (up to ".length())
