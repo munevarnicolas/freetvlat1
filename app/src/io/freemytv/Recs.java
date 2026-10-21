@@ -55,11 +55,6 @@ final class Recs {
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
     private static final int CACHE_VERSION = 3;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
-    static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
-    static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
-    static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
-    static final String[] PERIOD_LABEL_ES = {"PARA ESTA MAÑANA", "PARA ESTA TARDE", "PARA ESTA NOCHE"};
-    static final String[] PERIOD_LABEL_DE = {"HEUTE MORGEN", "HEUTE NACHMITTAG", "HEUTE ABEND"};
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -154,8 +149,8 @@ final class Recs {
     String error() { return error; }
 
     static String periodLabel() {
-        return (Ui.ru ? PERIOD_LABEL_RU : Ui.es ? PERIOD_LABEL_ES : Ui.de ? PERIOD_LABEL_DE : Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)
-                [period(System.currentTimeMillis())];
+        int p = period(System.currentTimeMillis());
+        return p == MANHA ? Ui.tr("THIS MORNING") : p == TARDE ? Ui.tr("THIS AFTERNOON") : Ui.tr("TONIGHT");
     }
 
     private static int period(long now) {
@@ -421,12 +416,15 @@ final class Recs {
         listLanguage = Ui.language;
     }
 
-    /** Language of titles and genres; the services come from the region. */
+    /** Language of titles and genres (TMDB's "fr-FR", "zh-CN"…); the services come from the region. */
     private static String lang() {
-        if (Ui.ru) return "ru-RU";
-        if (Ui.es) return "ES".equals(java.util.Locale.getDefault().getCountry()) ? "es-ES" : "es-MX";
-        if (Ui.de) return "de-DE";   // TMDB's de-AT and de-CH have few translations of their own
-        return Ui.en ? "en-US" : "pt-BR";
+        String lang = Ui.language;
+        if (lang.equals("en")) return "en-US";
+        if (lang.equals("pt")) return "pt-BR";
+        if (lang.equals("es")) return "ES".equals(java.util.Locale.getDefault().getCountry()) ? "es-ES" : "es-MX";
+        if (lang.equals("de")) return "de-DE";   // TMDB's de-AT and de-CH have few translations of their own
+        if (lang.indexOf('-') > 0) return lang;
+        return lang + "-" + Ui.locale().getCountry();
     }
 
     private static void alternate(List<Pick> out, java.util.Set<String> seen, List<Pick> a, List<Pick> b, int max) {
@@ -457,28 +455,23 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
         p.title = title(p, o);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
-        if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));
+        if (p.kind.equals("tv")) parts.add(Ui.tr("Series"));
         if (genres != null && genres.length() > 0) {
             String name = genres.getJSONObject(0).optString("name");
-            parts.add(Ui.en ? name : genre(name));
+            parts.add(genre(name));
         }
         if (p.kind.equals("movie")) {
             int minutes = o.optInt("runtime");
-            if (minutes > 0 && Ui.ru) parts.add(minutes >= 60 ? (minutes / 60) + " ч " + (minutes % 60) + " мин" : minutes + " мин");
-            else if (minutes > 0 && Ui.en) parts.add(minutes >= 60 ? (minutes / 60) + "h " + (minutes % 60) + "m" : minutes + "m");
-            else if (minutes > 0) parts.add(minutes >= 60 ? (minutes / 60) + " h " + (minutes % 60) + " min" : minutes + " min");
+            if (minutes > 0) parts.add(minutes >= 60 ? Ui.trf("{h}h {m}m", "h", minutes / 60, "m", minutes % 60) : Ui.trf("{m}m", "m", minutes));
         } else {
             int seasons = o.optInt("number_of_seasons");
-            if (seasons > 0 && Ui.ru) parts.add(Russian.count(seasons, "сезон", "сезона", "сезонов"));
-            else if (seasons > 0 && Ui.en) parts.add(seasons == 1 ? "1 season" : seasons + " seasons");
-            else if (seasons > 0 && Ui.de) parts.add(seasons == 1 ? "1 Staffel" : seasons + " Staffeln");
-            else if (seasons > 0) parts.add(seasons == 1 ? "1 temporada" : seasons + " temporadas");
+            if (seasons > 0) parts.add(Ui.plural("plural|one:{n} season|other:{n} seasons", seasons));
         }
         JSONObject wp = o.optJSONObject("watch/providers");
         JSONObject br = wp == null ? null : wp.optJSONObject("results") == null ? null : wp.optJSONObject("results").optJSONObject(REGION);
@@ -503,8 +496,9 @@ final class Recs {
         String field = p.kind.equals("movie") ? "title" : "name";
         String own = o.optString(field, p.title);
         String original = o.optString("original_language");
-        if (Ui.en || own.isEmpty() || !own.equals(o.optString("original_" + field))
-                || Ui.language.equals(original) || "en".equals(original)) return own;
+        String lang = Ui.language.replaceAll("-.*", "");   // TMDB's original_language has no country: "zh", not "zh-CN"
+        if (lang.equals("en") || own.isEmpty() || !own.equals(o.optString("original_" + field))
+                || lang.equals(original) || "en".equals(original)) return own;
         try {
             String english = get("/" + p.kind + "/" + p.id + "?language=en-US").optString(field);
             return english.isEmpty() ? own : english;
@@ -513,26 +507,18 @@ final class Recs {
         }
     }
 
-    /** TV genres that TMDB returns in English even in pt-BR. */
-    private static final String[][] GENRES_PT = {
-        {"Action & Adventure", "Ação e Aventura"}, {"Sci-Fi & Fantasy", "Ficção Científica e Fantasia"},
-        {"War & Politics", "Guerra e Política"}, {"Kids", "Infantil"}, {"News", "Notícias"}, {"Soap", "Novela"},
-        {"Talk", "Entrevistas"},
-    };
-    private static final String[][] GENRES_ES = {
-        {"Action & Adventure", "Acción y Aventura"}, {"Sci-Fi & Fantasy", "Ciencia ficción y Fantasía"},
-        {"War & Politics", "Guerra y Política"}, {"Kids", "Infantil"}, {"News", "Noticias"},
-        {"Soap", "Telenovela"}, {"Talk", "Entrevistas"},
-    };
-    private static final String[][] GENRES_DE = {
-        {"Action & Adventure", "Action & Abenteuer"}, {"War & Politics", "Krieg & Politik"}, {"Kids", "Kinder"},
-        {"News", "Nachrichten"}, {"Soap", "Seifenoper"}, {"Talk", "Talkshow"},
-    };
-
+    /** TV genres that TMDB returns in English even in other languages (pt-BR, es, de…). */
     private static String genre(String name) {
-        if (Ui.ru) return Russian.text(name);
-        for (String[] g : Ui.es ? GENRES_ES : Ui.de ? GENRES_DE : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
-        return name;
+        switch (name) {
+            case "Action & Adventure": return Ui.tr("genre|Action & Adventure");
+            case "Sci-Fi & Fantasy": return Ui.tr("genre|Sci-Fi & Fantasy");
+            case "War & Politics": return Ui.tr("genre|War & Politics");
+            case "Kids": return Ui.tr("genre|Kids");
+            case "News": return Ui.tr("genre|News");
+            case "Soap": return Ui.tr("genre|Soap");
+            case "Talk": return Ui.tr("genre|Talk");
+            default: return name;
+        }
     }
 
     /**

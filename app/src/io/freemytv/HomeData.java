@@ -78,7 +78,7 @@ final class HomeData {
     }
 
     static String coinName(int i) {
-        return i == 3 ? Ui.tr("Dólar", "Dollar") : COIN_NAMES[i];
+        return i == 3 ? Ui.tr("Dollar") : COIN_NAMES[i];
     }
 
     private static String pricesUrl() {
@@ -246,7 +246,8 @@ final class HomeData {
     }
 
     static List<String[]> findCity(String name) throws Exception {
-        JSONObject o = new JSONObject(get("https://geocoding-api.open-meteo.com/v1/search?count=10&format=json&language=" + Ui.language
+        String lang = Ui.language.replaceAll("-.*", "");   // Open-Meteo takes the language without the country
+        JSONObject o = new JSONObject(get("https://geocoding-api.open-meteo.com/v1/search?count=10&format=json&language=" + lang
                 + "&name=" + URLEncoder.encode(name.trim(), "UTF-8")));
         JSONArray results = o.optJSONArray("results");
         List<String[]> out = new ArrayList<>();
@@ -333,64 +334,21 @@ final class HomeData {
     /** The weather in words, from Open-Meteo's WMO code. */
     static String condition(int code, boolean day) {
         if (code < 0) return "";
-        if (Ui.en) {
-            if (code == 0) return "Clear";
-            if (code == 1) return day ? "Mostly Sunny" : "Mostly Clear";
-            if (code == 2) return "Partly Cloudy";
-            if (code == 3) return "Cloudy";
-            if (code == 45 || code == 48) return "Fog";
-            if (code >= 51 && code <= 57) return "Drizzle";
-            if (code == 65 || code == 67 || code == 82) return "Heavy Rain";
-            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Snow";
-            if (code >= 95) return "Thunderstorms";
-            return "Rain";
-        }
-        if (Ui.ru) {
-            if (code == 0) return "Ясно";
-            if (code == 1) return "Малооблачно";
-            if (code == 2) return "Переменная облачность";
-            if (code == 3) return "Облачно";
-            if (code == 45 || code == 48) return "Туман";
-            if (code >= 51 && code <= 57) return "Морось";
-            if (code == 65 || code == 67 || code == 82) return "Сильный дождь";
-            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Снег";
-            if (code >= 95) return "Гроза";
-            return "Дождь";
-        }
-        if (Ui.es) {
-            if (code == 0) return day ? "Despejado" : "Noche despejada";
-            if (code == 1) return "Mayormente despejado";
-            if (code == 2) return "Parcialmente nublado";
-            if (code == 3) return "Nublado";
-            if (code == 45 || code == 48) return "Niebla";
-            if (code >= 51 && code <= 57) return "Llovizna";
-            if (code == 65 || code == 67 || code == 82) return "Lluvia fuerte";
-            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Nieve";
-            if (code >= 95) return "Tormenta";
-            return "Lluvia";
-        }
-        if (Ui.de) {
-            if (code == 0) return day ? "Sonnig" : "Klar";
-            if (code == 1) return day ? "Überwiegend sonnig" : "Überwiegend klar";
-            if (code == 2) return "Teilweise bewölkt";
-            if (code == 3) return "Bewölkt";
-            if (code == 45 || code == 48) return "Nebel";
-            if (code >= 51 && code <= 57) return "Nieselregen";
-            if (code == 65 || code == 67 || code == 82) return "Starker Regen";
-            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Schnee";
-            if (code >= 95) return "Gewitter";
-            return "Regen";
-        }
-        if (code == 0) return day ? "Céu limpo" : "Noite limpa";
-        if (code == 1) return "Poucas nuvens";
-        if (code == 2) return "Parcialmente nublado";
-        if (code == 3) return "Nublado";
-        if (code == 45 || code == 48) return "Neblina";
-        if (code >= 51 && code <= 57) return "Garoa";
-        if (code == 65 || code == 67 || code == 82) return "Chuva forte";
-        if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Neve";
-        if (code >= 95) return "Tempestade";
-        return "Chuva";
+        if (code == 0) return day ? Ui.tr("Clear") : Ui.tr("night|Clear");
+        if (code == 1) return day ? Ui.tr("Mostly Sunny") : Ui.tr("Mostly Clear");
+        if (code == 2) return Ui.tr("Partly Cloudy");
+        if (code == 3) return Ui.tr("Cloudy");
+        if (code == 45 || code == 48) return Ui.tr("Fog");
+        if (code >= 51 && code <= 57) return Ui.tr("Drizzle");
+        if (code == 65 || code == 67 || code == 82) return Ui.tr("Heavy Rain");
+        if (code >= 71 && code <= 77 || code == 85 || code == 86) return Ui.tr("Snow");
+        if (code >= 95) return Ui.tr("Thunderstorms");
+        return Ui.tr("Rain");
+    }
+
+    /** "H:24°  L:15°" (in Portuguese, "Máx. 24°  Mín. 15°"), with the given space between the two. */
+    static String highLow(Weather wx, String space) {
+        return Ui.trf("H:{max}", "max", degrees(wx.max)) + space + Ui.trf("L:{min}", "min", degrees(wx.min));
     }
 
     private static String currencySymbol() {
@@ -424,8 +382,7 @@ final class HomeData {
     }
 
     static String hour(long at) {
-        return Ui.once("hour", at, () -> Ui.en ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
-                : new SimpleDateFormat(Ui.es || Ui.ru ? "HH:mm" : Ui.de ? "HH 'Uhr'" : "HH'h'", Ui.locale()).format(new java.util.Date(at)));
+        return Ui.once("hour", at, () -> Ui.datePattern("format|h a").format(at));
     }
 
     /** How long ago the data was fetched, if it's stale (no internet): "12 min ago". */
@@ -434,10 +391,6 @@ final class HomeData {
         long age = System.currentTimeMillis() - at;
         if (age < every * 2) return "";
         long minutes = age / 60_000;
-        if (Ui.en) return minutes < 60 ? minutes + " min ago" : (minutes / 60) + " h ago";
-        if (Ui.ru) return minutes < 60 ? minutes + " мин назад" : (minutes / 60) + " ч назад";
-        if (Ui.es) return minutes < 60 ? "hace " + minutes + " min" : "hace " + (minutes / 60) + " h";
-        if (Ui.de) return minutes < 60 ? "vor " + minutes + " Min." : "vor " + (minutes / 60) + " Std.";
-        return minutes < 60 ? "há " + minutes + " min" : "há " + (minutes / 60) + " h";
+        return minutes < 60 ? Ui.trf("{n} min ago", "n", minutes) : Ui.trf("{n} h ago", "n", minutes / 60);
     }
 }

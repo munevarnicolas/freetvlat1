@@ -216,25 +216,19 @@ final class HomeMode {
             Set<String> owners = wifiOwners(adb);
             boolean setupHome = setupIsHome(adb);
             if ((setupHome && owners.contains(GOOGLE_SETUP)) || owners.contains(packageOf(home))) {
-                throw new IOException(Ui.tr("a configuração inicial da TV salvou o Wi-Fi, e desligá-la apagaria essas redes. "
-                        + "Em Configurações → Rede e Internet, esqueça a rede e conecte de novo (as fora de alcance não aparecem "
-                        + "lá: o Claude Code apaga pelo computador) e tente outra vez.",
-                        "the TV's first setup saved the Wi-Fi, and turning it off would erase those networks. "
+                throw new IOException(Ui.tr("the TV's first setup saved the Wi-Fi, and turning it off would erase those networks. "
                         + "In Settings → Network & Internet, forget the network and connect again (networks out of range don't "
-                        + "show there: Claude Code can remove them from your computer), then try once more.",
-                        "la configuración inicial del TV guardó el Wi-Fi, y desactivarla borraría esas redes. "
-                        + "En Ajustes → Red e Internet, olvida la red y vuelve a conectarte (las fuera de alcance no aparecen "
-                        + "ahí: Claude Code las borra desde la computadora) y vuelve a intentarlo."));
+                        + "show there: Claude Code can remove them from your computer), then try once more."));
             }
             if (metrics(latest, ORIGINAL) == null && !home.isEmpty()) {
-                busy(c, Ui.tr("Medindo o Início original…", "Measuring the original home screen…"));
+                busy(c, Ui.tr("Measuring the original home screen…"));
                 measureHomeTime(c, adb, ORIGINAL);
                 measureMemory(c, adb, ORIGINAL);
             }
-            busy(c, Ui.tr("Trocando o Início e a tela de descanso…", "Switching the home screen and screensaver…"));
+            busy(c, Ui.tr("Switching the home screen and screensaver…"));
             Watchdog.clear(c);
             check(adb.shell("cmd package set-home-activity " + HOME_ACTIVITY), "Success",
-                    Ui.tr("o Android não aceitou o novo Início", "Android didn't accept the new home screen"));
+                    Ui.tr("Android didn't accept the new home screen"));
             adb.shell("settings put secure screensaver_components " + DREAM);
             JSONObject started = state(c);
             started.put("mode", FREE).put("homeReverted", false).put("setupHome", setupHome);
@@ -245,7 +239,7 @@ final class HomeMode {
             int done = 0;
             for (String pkg : targets) {
                 done++;
-                busy(c, Ui.tr("Desligando apps (", "Turning off apps (") + done + "/" + targets.size() + ")…");
+                busy(c, Ui.trf("Turning off apps ({done}/{total})…", "done", done, "total", targets.size()));
                 if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
                 String out = adb.shell("pm disable-user --user 0 " + pkg);
                 if (out.contains("disabled-user")) {
@@ -268,22 +262,21 @@ final class HomeMode {
                     AppLog.w("remote buttons service: " + e.getMessage());
                 }
             }
-            notice(c, Ui.tr("Free My TV ligado: Início e tela de descanso novos, " + disabled.size() + " apps desligados.",
-                    "Free My TV is on: new home screen and screensaver, " + disabled.size() + " apps turned off."));
-            busy(c, Ui.tr("Medindo o Free My TV…", "Measuring Free My TV…"));
+            notice(c, Ui.trf("Free My TV is on: new home screen and screensaver, {n} apps turned off.", "n", disabled.size()));
+            busy(c, Ui.tr("Measuring Free My TV…"));
             measureHomeTime(c, adb, FREE);
             done(c, null);
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, FREE, 120_000);
         } catch (Exception e) {
-            done(c, Ui.tr("Não deu para ligar o Free My TV: ", "Couldn't turn on Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+            done(c, Ui.trf("Couldn't turn on Free My TV: {error}", "error", e.getMessage()));
         }
     }
 
     private static void applyOriginal(Context c) {
         JSONObject s = state(c);
         try (Adb adb = connect(c, s)) {
-            busy(c, Ui.tr("Religando os apps…", "Turning the apps back on…"));
+            busy(c, Ui.tr("Turning the apps back on…"));
             String home = originalHome(s);
             Set<String> toEnable = new HashSet<>(stringList(s, "disabled"));
             for (String pkg : targets(home, originalDream(s), true)) {
@@ -294,13 +287,13 @@ final class HomeMode {
             List<String> failed = new ArrayList<>();
             for (String pkg : sorted(toEnable)) {
                 done++;
-                busy(c, Ui.tr("Religando apps (", "Turning apps back on (") + done + "/" + toEnable.size() + ")…");
+                busy(c, Ui.trf("Turning apps back on ({done}/{total})…", "done", done, "total", toEnable.size()));
                 if (!present.contains(pkg)) continue;
                 // Checked: whatever didn't come back stays on the list (and in the notice); nothing disappears silently.
                 String out = adb.shell("pm enable " + pkg);
                 if (!out.contains("new state: enabled")) failed.add(pkg);
             }
-            busy(c, Ui.tr("Devolvendo o Início original…", "Restoring the original home screen…"));
+            busy(c, Ui.tr("Restoring the original home screen…"));
             boolean homeOk = restoreHome(adb, home);
             restoreScreensaver(adb, s);
             try {
@@ -313,21 +306,19 @@ final class HomeMode {
                     .put("disabled", new JSONArray(failed));
             save(c, s);
             if (failed.isEmpty() && homeOk) {
-                notice(c, Ui.tr("Modo original: Início, tela de descanso e apps de fábrica de volta.",
-                        "Original mode: the factory home screen, screensaver and apps are back."));
+                notice(c, Ui.tr("Original mode: the factory home screen, screensaver and apps are back."));
             } else {
                 List<String> problems = new ArrayList<>(failed);
-                if (!homeOk) problems.add(Ui.tr("o Início original", "the original home screen"));
-                notice(c, Ui.tr("Modo original, mas não consegui religar: ", "Original mode, but I couldn't turn back on: ")
-                        + String.join(", ", problems) + ".");
+                if (!homeOk) problems.add(Ui.tr("the original home screen"));
+                notice(c, Ui.trf("Original mode, but I couldn't turn back on: {list}.", "list", String.join(", ", problems)));
             }
-            busy(c, Ui.tr("Medindo o Início original…", "Measuring the original home screen…"));
+            busy(c, Ui.tr("Measuring the original home screen…"));
             measureHomeTime(c, adb, ORIGINAL);
             done(c, null);
             adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             ModeJob.schedule(c, ModeJob.MEMORY, ORIGINAL, 120_000);
         } catch (Exception e) {
-            done(c, Ui.tr("Não deu para voltar ao original: ", "Couldn't go back to the original: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+            done(c, Ui.trf("Couldn't go back to the original: {error}", "error", e.getMessage()));
         }
     }
 
@@ -365,8 +356,7 @@ final class HomeMode {
                 restoreScreensaver(adb, s);
                 s.put("homeReverted", true).put("disabled", kept);
                 save(app, s);
-                notice(app, Ui.tr("O Início do Free My TV caiu 3 vezes seguidas; voltei para o Início original.",
-                        "Free My TV's home screen crashed 3 times in a row; I switched back to the original one."));
+                notice(app, Ui.tr("Free My TV's home screen crashed 3 times in a row; I switched back to the original one."));
                 adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME");
             } catch (Exception e) {
                 AppLog.w("could not give the home screen back: " + e.getMessage());
@@ -418,25 +408,25 @@ final class HomeMode {
                 }
                 if (!reverted && !homeHolder(adb).contains(PKG)) {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
-                    fixed.add(Ui.tr("o Início", "the home screen"));
+                    fixed.add(Ui.tr("the home screen"));
                 }
                 // Whole component names: ".ScreensaverAlone" (Android 11) contains ".Screensaver" (12 and newer).
                 if (!reverted && !Arrays.asList(adb.shell("settings get secure screensaver_components").trim().split(",")).contains(DREAM)) {
                     adb.shell("settings put secure screensaver_components " + DREAM);
-                    fixed.add(Ui.tr("a tela de descanso", "the screensaver"));
+                    fixed.add(Ui.tr("the screensaver"));
                 }
                 JSONObject latest = state(app);
                 latest.put("disabled", new JSONArray(sorted(disabled)));
                 save(app, latest);
             } catch (Exception e) {
-                notice(app, Ui.tr("Não consegui conferir o Free My TV: ", "Couldn't check Free My TV: ") + (Ui.ru ? Russian.text(e.getMessage() == null ? "" : e.getMessage()) : e.getMessage()));
+                notice(app, Ui.trf("Couldn't check Free My TV: {error}", "error", e.getMessage()));
                 return;
             }
             if (!fixed.isEmpty()) {
-                notice(app, (updated ? Ui.tr("A atualização da TV religou ", "The TV update turned back on ")
-                        : Ui.tr("Desliguei o que faltava: ", "Turned off what was missing: ")) + String.join(", ", fixed) + ".");
+                notice(app, updated ? Ui.trf("The TV update turned back on {list}.", "list", String.join(", ", fixed))
+                        : Ui.trf("Turned off what was missing: {list}.", "list", String.join(", ", fixed)));
             } else if (updated) {
-                notice(app, Ui.tr("A TV foi atualizada; o Free My TV continua igual.", "The TV was updated; Free My TV is still on."));
+                notice(app, Ui.tr("The TV was updated; Free My TV is still on."));
             }
         }
     }
@@ -559,9 +549,8 @@ final class HomeMode {
     }
 
     private static Adb connect(Context c, JSONObject s) throws IOException {
-        busy(c, Ui.tr("Conectando…", "Connecting…"));
-        Adb adb = Adb.connect(c, 120_000, () -> busy(c, Ui.tr("Aceite o aviso “Permitir depuração” na TV (marque “Sempre permitir”).",
-                "Accept “Allow USB debugging?” on the TV (tick “Always allow”).")));
+        busy(c, Ui.tr("Connecting…"));
+        Adb adb = Adb.connect(c, 120_000, () -> busy(c, Ui.tr("Accept “Allow USB debugging?” on the TV (tick “Always allow”).")));
         if (!s.optBoolean("adbAuthorized")) {
             JSONObject latest = state(c);
             try { latest.put("adbAuthorized", true); } catch (JSONException ignored) {}
