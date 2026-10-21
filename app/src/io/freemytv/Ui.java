@@ -29,10 +29,10 @@ final class Ui {
     static final boolean LEGACY = Build.VERSION.SDK_INT < 31;
     static final Locale RU = new Locale("ru", "RU");
     static final Locale PT = new Locale("pt", "BR");
-    /** English, Portuguese, Spanish, German or Russian, from the settings or, with "auto", the TV's own language. */
+    /** English, Portuguese, Spanish, German, French or Russian, from the settings or, with "auto", the TV's own language. */
     static volatile String language = language();
     static volatile boolean en = "en".equals(language), es = "es".equals(language), de = "de".equals(language),
-            ru = "ru".equals(language);
+            fr = "fr".equals(language), ru = "ru".equals(language);
     static Typeface thin, light, displayMedium, displaySemibold, regular, medium, semibold;
     private static boolean loaded;
     private static final Rect BOUNDS = new Rect();
@@ -66,12 +66,12 @@ final class Ui {
 
     private static final String FONT = "fonts/InterVariable.ttf";
 
-    /** "pt", "es", "de", "ru" or "en": the one picked (TV settings or config.properties), or with "auto" the TV's own, else English. */
+    /** "pt", "es", "de", "fr", "ru" or "en": the one picked (TV settings or config.properties), or with "auto" the TV's own, else English. */
     private static String language() {
         String lang = Prefs.language();
         if (!lang.equals("auto")) return lang;
         lang = Locale.getDefault().getLanguage();
-        return "pt".equals(lang) || "es".equals(lang) || "de".equals(lang) || "ru".equals(lang) ? lang : "en";
+        return "pt".equals(lang) || "es".equals(lang) || "de".equals(lang) || "fr".equals(lang) || "ru".equals(lang) ? lang : "en";
     }
 
     /** After the language changes in the settings (and once Prefs can read them). */
@@ -80,6 +80,7 @@ final class Ui {
         en = "en".equals(language);
         es = "es".equals(language);
         de = "de".equals(language);
+        fr = "fr".equals(language);
         ru = "ru".equals(language);
     }
 
@@ -138,16 +139,16 @@ final class Ui {
     }
 
     static String tr(String pt, String english) {
-        return de ? German.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
+        return de ? German.text(english) : fr ? French.text(english) : ru ? Russian.text(english) : es ? Spanish.text(english) : en ? english : pt;
     }
 
     /** German comes from German.java here too (keyed by the English, with patterns for text built at runtime). */
     static String tr(String pt, String english, String spanish) {
-        return de ? German.text(english) : ru ? Russian.text(english) : es ? spanish : en ? english : pt;
+        return de ? German.text(english) : fr ? French.text(english) : ru ? Russian.text(english) : es ? spanish : en ? english : pt;
     }
 
     static Locale locale() {
-        return ru ? RU : es ? spanish() : de ? german() : en ? Locale.US : PT;
+        return ru ? RU : es ? spanish() : de ? german() : fr ? french() : en ? Locale.US : PT;
     }
 
     /** The TV's own Spanish (es-MX, es-AR…) when it is in Spanish, Spain's otherwise. */
@@ -160,6 +161,12 @@ final class Ui {
     private static Locale german() {
         Locale tv = Locale.getDefault();
         return "de".equals(tv.getLanguage()) ? tv : Locale.GERMANY;
+    }
+
+    /** The TV's own French (fr-CH, fr-BE…) when it is in French, France's otherwise. */
+    private static Locale french() {
+        Locale tv = Locale.getDefault();
+        return "fr".equals(tv.getLanguage()) ? tv : Locale.FRANCE;
     }
 
     /** "21:47" (in English, "9:47", like the iPhone in the US). */
@@ -197,7 +204,7 @@ final class Ui {
     static String date(long now) {
         return ru ? new SimpleDateFormat("EEEE, d MMMM", locale()).format(new Date(now))
                 : en ? new SimpleDateFormat("EEEE, MMMM d", Locale.US).format(new Date(now))
-                : new SimpleDateFormat(de ? "EEEE, d. MMMM" : "EEEE, d 'de' MMMM", locale()).format(new Date(now));
+                : new SimpleDateFormat(de ? "EEEE, d. MMMM" : fr ? "EEEE d MMMM" : "EEEE, d 'de' MMMM", locale()).format(new Date(now));
     }
 
     /** Spinning arc (work in progress). */

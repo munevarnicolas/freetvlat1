@@ -60,6 +60,7 @@ final class Recs {
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
     static final String[] PERIOD_LABEL_ES = {"PARA ESTA MAÑANA", "PARA ESTA TARDE", "PARA ESTA NOCHE"};
     static final String[] PERIOD_LABEL_DE = {"HEUTE MORGEN", "HEUTE NACHMITTAG", "HEUTE ABEND"};
+    static final String[] PERIOD_LABEL_FR = {"CE MATIN", "CET APRÈS-MIDI", "CE SOIR"};
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -154,7 +155,7 @@ final class Recs {
     String error() { return error; }
 
     static String periodLabel() {
-        return (Ui.ru ? PERIOD_LABEL_RU : Ui.es ? PERIOD_LABEL_ES : Ui.de ? PERIOD_LABEL_DE : Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)
+        return (Ui.ru ? PERIOD_LABEL_RU : Ui.es ? PERIOD_LABEL_ES : Ui.de ? PERIOD_LABEL_DE : Ui.fr ? PERIOD_LABEL_FR : Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)
                 [period(System.currentTimeMillis())];
     }
 
@@ -425,6 +426,7 @@ final class Recs {
     private static String lang() {
         if (Ui.ru) return "ru-RU";
         if (Ui.es) return "ES".equals(java.util.Locale.getDefault().getCountry()) ? "es-ES" : "es-MX";
+        if (Ui.fr) return "fr-FR";
         if (Ui.de) return "de-DE";   // TMDB's de-AT and de-CH have few translations of their own
         return Ui.en ? "en-US" : "pt-BR";
     }
@@ -478,6 +480,7 @@ final class Recs {
             if (seasons > 0 && Ui.ru) parts.add(Russian.count(seasons, "сезон", "сезона", "сезонов"));
             else if (seasons > 0 && Ui.en) parts.add(seasons == 1 ? "1 season" : seasons + " seasons");
             else if (seasons > 0 && Ui.de) parts.add(seasons == 1 ? "1 Staffel" : seasons + " Staffeln");
+            else if (seasons > 0 && Ui.fr) parts.add(seasons == 1 ? "1 saison" : seasons + " saisons");
             else if (seasons > 0) parts.add(seasons == 1 ? "1 temporada" : seasons + " temporadas");
         }
         JSONObject wp = o.optJSONObject("watch/providers");
@@ -524,6 +527,11 @@ final class Recs {
         {"War & Politics", "Guerra y Política"}, {"Kids", "Infantil"}, {"News", "Noticias"},
         {"Soap", "Telenovela"}, {"Talk", "Entrevistas"},
     };
+    private static final String[][] GENRES_FR = {
+        {"Action & Adventure", "Action & Aventure"}, {"Sci-Fi & Fantasy", "Science-Fiction & Fantastique"},
+        {"War & Politics", "Guerre & Politique"}, {"Kids", "Enfants"}, {"News", "Actualités"}, {"Soap", "Feuilleton"},
+        {"Talk", "Talk-show"},
+    };
     private static final String[][] GENRES_DE = {
         {"Action & Adventure", "Action & Abenteuer"}, {"War & Politics", "Krieg & Politik"}, {"Kids", "Kinder"},
         {"News", "Nachrichten"}, {"Soap", "Seifenoper"}, {"Talk", "Talkshow"},
@@ -531,7 +539,7 @@ final class Recs {
 
     private static String genre(String name) {
         if (Ui.ru) return Russian.text(name);
-        for (String[] g : Ui.es ? GENRES_ES : Ui.de ? GENRES_DE : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
+        for (String[] g : Ui.es ? GENRES_ES : Ui.de ? GENRES_DE : Ui.fr ? GENRES_FR : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
         return name;
     }
 
