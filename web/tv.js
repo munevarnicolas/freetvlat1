@@ -60,6 +60,32 @@ var TV = (function () {
     ['com.palm.app.settings', 'Settings', '#8E8E93']
   ];
 
+  // Newer webOS (11 tested) denies listLaunchPoints to Developer Mode apps, but still answers getAppLoadStatus for
+  // one app id: these are checked one by one there. Their icons can't be read, so the shelf shows their names.
+  var KNOWN = [
+    ['netflix', 'Netflix'], ['youtube.leanback.v4', 'YouTube'], ['amazon', 'Prime Video'],
+    ['com.disney.disneyplus-prod', 'Disney+'], ['com.wbd.stream', 'HBO Max'], ['com.hbo.hbomax', 'Max'],
+    ['com.apple.appletv', 'Apple TV'], ['hulu', 'Hulu'], ['com.peacock.tv', 'Peacock'], ['com.nfl.app', 'NFL'],
+    ['globoplaywebos', 'Globoplay'], ['spotify-beehive', 'Spotify'], ['tv.twitch.tv.starshot.lg', 'Twitch'],
+    ['cdp-30', 'Plex'], ['com.crunchyroll.webapp', 'Crunchyroll'], ['com.webos.app.browser', 'Web Browser']
+  ];
+
+  function knownApps(done) {
+    var found = [], left = KNOWN.length, sent = false;
+    function finish() {
+      if (sent) return;
+      sent = true;
+      done(found.filter(function (x) { return x; }));
+    }
+    setTimeout(finish, 5000);   // an id that never answers doesn't hold the rest
+    KNOWN.forEach(function (k, i) {
+      luna('luna://com.webos.applicationManager/getAppLoadStatus', {appId: k[0]}, function (res) {
+        if (res && res.exist) found[i] = {id: k[0], title: k[1], icon: '', color: ''};
+        if (--left === 0) finish();
+      });
+    });
+  }
+
   var self = 'io.freemytv';
   if (webos && window.PalmSystem && window.PalmSystem.identifier) self = window.PalmSystem.identifier.split(' ')[0];
   if (samsung) {
@@ -171,6 +197,7 @@ var TV = (function () {
         return;
       }
       luna('luna://com.webos.applicationManager/listLaunchPoints', {}, function (res) {
+        if (!res) { knownApps(done); return; }
         var out = [];
         var points = res && res.launchPoints ? res.launchPoints : [];
         for (var i = 0; i < points.length; i++) {
