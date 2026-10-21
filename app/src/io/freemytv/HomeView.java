@@ -137,7 +137,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
-    private List<Recs.Pick> cards = new ArrayList<>();
+    private List<Recs.Pick> cards = new ArrayList<>();      // the three on screen: page `cardPage` of `tabPicks`
+    private List<Recs.Pick> tabPicks = new ArrayList<>();   // all of the tab's picks this hour; → past the last card pages on
+    private int cardPage;
     private final Spring[] topFocus = new Spring[6];
     private final RectF[] topRects = new RectF[6];
     private final Spring[] cardFocus = new Spring[3];
@@ -340,7 +342,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             checkNotices();
             updatePalette();
             checkNight(true);
-            updatePicks();      // three new ones every hour
+            updatePicks();      // new ones every hour
             handler.postDelayed(this, 15_000);
         }
     };
@@ -460,6 +462,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePicks();
         }
         if (tab != 0) selectTab(0);
+        if (cardPage != 0) {
+            cardPage = 0;
+            updateCards();
+        }
         retarget(!animated);
         motionDirty = true;
     }
@@ -2143,7 +2149,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_HERO) {
             Recs.Pick p = currentPick();
             if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
+            it = HomeApps.app(p.pkg, Recs.serviceName(p), Recs.pageUri(p));
             r = heroButton;
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
@@ -2163,7 +2169,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
+            it = HomeApps.app(p.pkg, Recs.serviceName(p), Recs.pageUri(p));
             r = cardRects[cardIndex];
         } else {
             if (shelf.isEmpty()) return;
@@ -2611,7 +2617,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
     private void updateCards() {
-        List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
+        tabPicks = recs.now(TAB_KIND[tab]);
+        cardPage = Math.max(0, Math.min(cardPage, (tabPicks.size() - 1) / 3));
+        List<Recs.Pick> list = page(tabPicks, cardPage);
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
@@ -2620,16 +2628,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 retarget(false);
             }
         }
-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
+        // The cards on screen in every tab preloaded (a tab opens on its first page): switching tabs is instant. Only
+        // those: the rest of the pages would push them out of the images kept in memory.
+        for (int t = 0; t < TAB_KIND.length; t++) {
+            for (Recs.Pick p : t == tab ? list : page(recs.now(TAB_KIND[t]), 0)) recs.backdrop(p);
+        }
         Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(0));
         if (cards.isEmpty() || b != null) showBackdrop(b);
         heroDirty = true;
         spoken.focusMoved();    // new picks under the focused card
     }
 
+    private static List<Recs.Pick> page(List<Recs.Pick> all, int page) {
+        int from = Math.min(all.size(), page * 3);
+        return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
+    }
+
     private void selectTab(int index) {
         if (index == tab) return;
         tab = index;
+        cardPage = 0;
         updateCards();
         heroDirty = true;
     }
@@ -2710,7 +2728,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
+        drawCardPages(c);
         if (HomeData.coinCount() > 0) drawQuotes(c);
+    }
+
+    /** One dot per page of three cards, under the last card's title, the current one solid (only with more than one). */
+    private void drawCardPages(Canvas c) {
+        int pages = (tabPicks.size() + 2) / 3;
+        if (pages < 2) return;
+        float gap = 20 * k, dot = 5 * k, y = cardRects[2].bottom + 78 * k;
+        float x = cardRects[2].right - dot - (pages - 1) * gap;
+        int ink = tone(INK, WHITE);
+        fill.setShader(null);
+        for (int i = 0; i < pages; i++) {
+            fill.setColor(i == cardPage ? ink : Ui.alpha(ink, 0.3f));
+            c.drawCircle(x + i * gap, y, dot, fill);
+        }
     }
 
     private boolean picksOn() {
@@ -2853,7 +2886,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 break;
             case Z_CARDS:
-                if (dx != 0) {
+                if (dx > 0 && cardIndex == cards.size() - 1 && (cardPage + 1) * 3 < tabPicks.size()) {
+                    cardPage++;     // past the last card: the next three, focus on the first
+                    cardIndex = 0;
+                    updateCards();
+                } else if (dx < 0 && cardIndex == 0 && cardPage > 0) {
+                    cardPage--;
+                    cardIndex = 2;
+                    updateCards();
+                } else if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
                     if (next == cardIndex) return true;
                     cardIndex = next;

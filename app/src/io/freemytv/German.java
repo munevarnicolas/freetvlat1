@@ -109,6 +109,8 @@ final class German {
             case "Cancel": return "Abbrechen";
             case "No city with that name.": return "Keine Stadt mit diesem Namen.";
             case "Couldn't search now: ": return "Suche gerade nicht möglich: ";
+            case "Picks": return "Empfehlungen";
+            case "Streaming apps": return "Streaming-Apps";
             case "Quotes widget": return "Kurs-Widget";
             case "On": return "An";
             case "Off": return "Aus";
@@ -134,8 +136,8 @@ final class German {
                             + english.substring("Free My TV is on: new home screen and screensaver, ".length()).replace(" apps turned off.", " Apps ausgeschaltet.");
                 }
                 if (english.startsWith("On · ")) {
-                    return "An · " + english.substring(5).replace(" titles from the TV's apps, 3 new ones every hour.",
-                            " Titel aus den Apps des Fernsehers, 3 neue pro Stunde.");
+                    return "An · " + english.substring(5).replace(" titles from the TV's apps, 9 new ones every hour.",
+                            " Titel aus den Apps des Fernsehers, 9 neue pro Stunde.");
                 }
                 if (english.startsWith("OK adds or removes (up to ")) {
                     return "OK fügt hinzu oder entfernt (bis zu " + english.substring("OK adds or removes (up to ".length())

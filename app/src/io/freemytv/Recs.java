@@ -34,8 +34,9 @@ import java.util.concurrent.Executors;
 /**
  * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, only from
  * the streaming apps installed on the TV (Netflix, Prime Video, Disney+, Max, Apple TV, Hulu, Paramount+, Peacock,
- * Globoplay...), via TMDB (an open movie database that knows what streams where in each country). Three per hour.
- * "Watch" opens the service's app.
+ * Globoplay...), via TMDB (an open movie database that knows what streams where in each country). PER_HOUR per hour.
+ * "Watch" opens the service's app. With Lampa on the TV, anything that streams on none of them goes to Lampa, which
+ * opens a TMDB link on the title's own card.
  *
  * Each person uses their own free TMDB key (config.properties "tmdb_key", built into the app). It never goes to the log.
  */
@@ -83,7 +84,13 @@ final class Recs {
         SERVICE_NAME.put("globoplay", "Globoplay");
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
+        SERVICE_NAME.put("lampa", "Lampa");
     }
+    private static final String LAMPA = "top.rootu.lampa";
+    /** Picks per tab each hour: three cards on screen, the rest a page away. */
+    static final int PER_HOUR = 9;
+    /** Titles in the saved list (enough for every tab's PER_HOUR to rotate) and backdrops kept on disk. */
+    private static final int LIST_MAX = 36, DISK_MAX = 48;
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
 
@@ -170,7 +177,7 @@ final class Recs {
         return now(null);
     }
 
-    /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
+    /** This hour's PER_HOUR, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
@@ -181,11 +188,11 @@ final class Recs {
         }
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
+        // PER_HOUR per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
-            Pick p = list.get((int) ((hour * 3 + i) % list.size()));
+        for (int i = 0; i < list.size() && out.size() < PER_HOUR; i++) {
+            Pick p = list.get((int) ((hour * PER_HOUR + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
         return out;
@@ -202,6 +209,11 @@ final class Recs {
     /** Name of the service the pick is on ("Netflix"), or empty. */
     static String serviceName(Pick p) {
         return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
+    }
+
+    /** Where "Watch" goes inside the app: the title's card in Lampa; null = the app's start screen. */
+    static String pageUri(Pick p) {
+        return p != null && LAMPA.equals(p.pkg) ? "https://www.themoviedb.org/" + p.kind + "/" + p.id : null;
     }
 
     /** The pick's ready backdrop (or null: builds it in the background and notifies when it's ready). */
@@ -379,11 +391,14 @@ final class Recs {
             String[] s = service(o.optString("provider_name"));
             if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
         }
-        if (services.isEmpty()) throw new IOException("none of the TV's streaming services are on TMDB");
+        boolean lampa = lampa();
+        if (services.isEmpty() && !lampa) throw new IOException("none of the TV's streaming services are on TMDB");
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
+        // Lampa plays anything: then the new releases aren't limited to the TV's services.
+        String common = "&language=" + lang() + "&include_adult=false&sort_by=popularity.desc" + (lampa ? ""
+                : "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&with_watch_providers="
+                + URLEncoder.encode(ids.toString(), "UTF-8"));
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -409,11 +424,11 @@ final class Recs {
         List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
-        // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
+        // Trending first, then the new releases; movies and shows alternating, without repeats, up to LIST_MAX.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        alternate(list, seen, hotMovies, hotShows, LIST_MAX);
+        alternate(list, seen, newMovies, newShows, LIST_MAX);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
@@ -489,6 +504,10 @@ final class Recs {
                 p.app = s[1];
                 p.pkg = s[2];
             }
+        }
+        if (p.app == null && lampa()) {
+            p.app = "lampa";
+            p.pkg = LAMPA;
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
@@ -569,10 +588,15 @@ final class Recs {
         return HomeApps.launchIntent(context.getPackageManager(), pkg) != null;
     }
 
+    /** Lampa picked in Home Settings and on the TV. */
+    private boolean lampa() {
+        return "lampa".equals(Prefs.recsSource()) && installed(LAMPA);
+    }
+
     private long sourceStamp() {
         long stamp = Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode();
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
-        return stamp;
+        return stamp * 31L + (lampa() ? LAMPA.hashCode() : 0);
     }
 
     private JSONObject get(String path) throws IOException, org.json.JSONException {
@@ -600,7 +624,7 @@ final class Recs {
         return key.isEmpty() ? null : key;
     }
 
-    // MARK: - Images (TMDB originals on disk, up to 24 so the whole list fits; this hour's kept ready in memory)
+    // MARK: - Images (TMDB originals on disk, up to DISK_MAX so every tab's picks fit; the ones on screen kept ready in memory)
 
     private void download(Pick p) throws IOException {
         File f = imageFile(p);
@@ -676,9 +700,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= DISK_MAX) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - DISK_MAX; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }

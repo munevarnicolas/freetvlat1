@@ -81,6 +81,13 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** Where the home screen picks open: "lampa" (any title, in Lampa when it's installed) or "services" (only what streams on the TV's apps). */
+    static String recsSource() {
+        return "services".equals(sp().getString("recs_source", "lampa")) ? "services" : "lampa";
+    }
+
+    static void setRecsSource(String v) { put("recs_source", v); }
+
     // MARK: - City
 
     static String city() { return sp().getString("city", Config.CITY).trim(); }
