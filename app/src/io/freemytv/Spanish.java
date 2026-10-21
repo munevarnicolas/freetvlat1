@@ -112,6 +112,7 @@ final class Spanish {
             case "YouTube button": return "Botón YouTube";
             case "Prime Video button": return "Botón Prime Video";
             case "TCL Channel button": return "Botón TCL Channel";
+            case "Tabii button": return "Botón Tabii";
             case "Nothing": return "Nada";
             case "Not installed": return "No instalada";
             case ", selected": return ", seleccionado";
@@ -119,6 +120,7 @@ final class Spanish {
             case "OK picks, Back cancels.": return "OK elige, Atrás cancela.";
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Disney y Globoplay: el propio TV controla esos botones.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "YouTube, Prime Video y Google Play: el propio TV controla esos botones.";
+            case "Netflix, YouTube and Prime Video: the TV itself controls those buttons.": return "Netflix, YouTube y Prime Video: el propio TV controla esos botones.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Estos son los botones del control de TCL: en este TV, los botones funcionan como siempre.";
             default:
                 if (english.startsWith("Free My TV is on: new home screen and screensaver, ")) {

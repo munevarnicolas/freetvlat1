@@ -119,6 +119,7 @@ final class Russian {
             case "YouTube button": return "Кнопка YouTube";
             case "Prime Video button": return "Кнопка Prime Video";
             case "TCL Channel button": return "Кнопка TCL Channel";
+            case "Tabii button": return "Кнопка Tabii";
             case "Nothing": return "Ничего";
             case "Not installed": return "Не установлено";
             case ", selected": return ", выбрано";
@@ -126,6 +127,7 @@ final class Russian {
             case "OK picks, Back cancels.": return "OK — выбрать, «Назад» — отменить.";
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Кнопками Disney и Globoplay управляет сам телевизор.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "Кнопками YouTube, Prime Video и Google Play управляет сам телевизор.";
+            case "Netflix, YouTube and Prime Video: the TV itself controls those buttons.": return "Кнопками Netflix, YouTube и Prime Video управляет сам телевизор.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Это кнопки пульта TCL: на этом телевизоре они работают как прежде.";
             case "Explore": return "Обзор";
             case "Movies": return "Фильмы";
