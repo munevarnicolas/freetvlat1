@@ -33,8 +33,13 @@ final class HomeData {
     static final String[] COINS = {"BTC", "ETH", "SOL", "USDT"};
     static final String[] COIN_NAMES = {"Bitcoin", "Ethereum", "Solana", "Dollar"};
     private static final String CURRENCY = Config.CURRENCY.trim().toUpperCase(Locale.ROOT);
+    /** Binance has no pairs in some currencies (INR...) and then refuses the whole request: prices go in dollars instead. */
+    private static volatile boolean inDollars;
+
     /** Binance quotes dollars as USDT. */
-    private static final String QUOTE = CURRENCY.equals("USD") ? "USDT" : CURRENCY;
+    private static String quote() {
+        return CURRENCY.equals("USD") || inDollars ? "USDT" : CURRENCY;
+    }
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
             + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
 
@@ -84,7 +89,7 @@ final class HomeData {
     private static String pricesUrl() {
         StringBuilder symbols = new StringBuilder();
         int[] coins = active();
-        for (int i = 0; i < coins.length; i++) symbols.append(i == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(QUOTE).append("%22");
+        for (int i = 0; i < coins.length; i++) symbols.append(i == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(quote()).append("%22");
         return "https://api.binance.com/api/v3/ticker/24hr?type=MINI&symbols=%5B" + symbols + "%5D";
     }
 
@@ -122,6 +127,7 @@ final class HomeData {
 
     private HomeData(Context c) {
         cache = c.getSharedPreferences("homedata", Context.MODE_PRIVATE);
+        inDollars = CURRENCY.equals(cache.getString("dollarsFor", ""));
         try {
             if (Prefs.quotes()) {
                 String p = cache.getString("prices", null);
@@ -148,7 +154,16 @@ final class HomeData {
             fetchingPrices = true;
             io.execute(() -> {
                 try {
-                    String body = get(pricesUrl());
+                    String body;
+                    try {
+                        body = get(pricesUrl());
+                    } catch (IOException e) {
+                        if (inDollars || CURRENCY.equals("USD") || !"HTTP 400".equals(e.getMessage())) throw e;
+                        inDollars = true;
+                        cache.edit().putString("dollarsFor", CURRENCY).apply();
+                        AppLog.w("prices: Binance has no " + CURRENCY + " pairs, using dollars");
+                        body = get(pricesUrl());
+                    }
                     parsePrices(body);
                     pricesAt = System.currentTimeMillis();
                     cache.edit().putString("prices", body).putLong("pricesAt", pricesAt).apply();
@@ -190,7 +205,7 @@ final class HomeData {
 
     private void parsePrices(String body) throws Exception {
         JSONArray list = new JSONArray(body);
-        String quote = QUOTE;
+        String quote = quote();
         int found = 0;
         for (int i = 0; i < list.length(); i++) {
             JSONObject o = list.getJSONObject(i);
@@ -394,7 +409,7 @@ final class HomeData {
     }
 
     private static String currencySymbol() {
-        switch (CURRENCY) {
+        switch (inDollars ? "USD" : CURRENCY) {
             case "USD": return "$";
             case "BRL": return "R$ ";
             case "EUR": return "€";
