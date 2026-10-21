@@ -201,7 +201,8 @@ var Data = (function () {
     ['peacock', 'peacock', /peacock/, /peacock/i, 'Peacock'],
     ['globoplay', 'globoplay', /globoplay/, /globoplay/i, 'Globoplay'],
     ['max', 'max', /hbo|wbd|\.max/, /^(hbo )?max$|hbo max/i, 'Max'],
-    ['apple tv', 'appletv', /appletv|apple\.tv/, /apple tv/i, 'Apple TV']
+    ['apple tv', 'appletv', /appletv|apple\.tv/, /apple tv/i, 'Apple TV'],
+    ['hotstar', 'hotstar', /hotstar/, /hotstar/i, 'JioHotstar']
   ];
 
   var installed = [];   // the TV's apps, from TV.apps()
