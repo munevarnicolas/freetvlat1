@@ -71,6 +71,7 @@ final class Recs {
         {"globoplay", "globoplay", "com.globo.globotv"},
         {"max", "max", "com.wbd.stream"},
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
+        {"oneplay", "oneplay", "net.cme.voyo.cz.tvapp"},    // Czechia: Voyo and O2 TV became Oneplay, same app
     };
     private static final Map<String, String> SERVICE_NAME = new HashMap<>();
     static {
@@ -83,6 +84,7 @@ final class Recs {
         SERVICE_NAME.put("globoplay", "Globoplay");
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
+        SERVICE_NAME.put("oneplay", "Oneplay");
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
@@ -409,11 +411,24 @@ final class Recs {
         List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
-        // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
-        List<Pick> list = new ArrayList<>();
+        // 3. Made in your country (tmdb_region), on the TV's services: "Ulice" and "Kolja" in Czechia.
+        JSONArray homeMovieList = get("/discover/movie?vote_count.gte=10&with_origin_country=" + REGION + common).getJSONArray("results");
+        JSONArray homeShowList = get("/discover/tv?vote_count.gte=5&with_origin_country=" + REGION + common).getJSONArray("results");
+        List<Pick> homeMovies = new ArrayList<>(), homeShows = new ArrayList<>();
+        for (int i = 0; i < homeMovieList.length(); i++) add(homeMovies, homeMovieList.getJSONObject(i), "movie");
+        for (int i = 0; i < homeShowList.length(); i++) add(homeShows, homeShowList.getJSONObject(i), "tv");
+        // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24. Every
+        // third one is made in your country (when there are such), so most hours' three have one of them.
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        List<Pick> home = new ArrayList<>(), others = new ArrayList<>();
+        alternate(others, seen, hotMovies, hotShows, 16);
+        alternate(home, seen, homeMovies, homeShows, 8);
+        alternate(others, seen, newMovies, newShows, 24 - home.size());
+        List<Pick> list = new ArrayList<>();
+        for (int h = 0, o = 0; h < home.size() || o < others.size(); ) {
+            boolean homeTurn = list.size() % 3 == 2 && h < home.size();
+            list.add(homeTurn || o >= others.size() ? home.get(h++) : others.get(o++));
+        }
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
