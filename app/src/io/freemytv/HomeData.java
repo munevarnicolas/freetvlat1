@@ -15,6 +15,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -322,12 +325,22 @@ final class HomeData {
         return String.format(locale(), "%.2f", v);
     }
 
-    /** $108,234 · $185.20 · R$ 581.234 · R$ 5,61 (cents only below a thousand), in the configured currency. */
+    /**
+     * $108,234 · $185.20 · R$ 581.234 · 74 264 € (cents only below a thousand), in the configured currency, with the
+     * symbol and spaces where the language puts them.
+     */
     static String brl(double v) {
         String symbol = currencySymbol();
         if (Double.isNaN(v)) return symbol + "—";
-        return Ui.once("brl", v, () -> v >= 1000 ? String.format(locale(), symbol + "%,.0f", v)
-                : String.format(locale(), symbol + "%.2f", v));
+        return Ui.once("brl", v, () -> {
+            DecimalFormat f = (DecimalFormat) NumberFormat.getCurrencyInstance(locale());
+            DecimalFormatSymbols s = f.getDecimalFormatSymbols();
+            s.setCurrencySymbol(symbol.trim());   // our symbols: ICU would write "US$" outside the US
+            f.setDecimalFormatSymbols(s);
+            f.setMinimumFractionDigits(v >= 1000 ? 0 : 2);
+            f.setMaximumFractionDigits(v >= 1000 ? 0 : 2);
+            return f.format(v);
+        });
     }
 
     /** The weather in words, from Open-Meteo's WMO code. */
@@ -417,10 +430,15 @@ final class HomeData {
         return "US".equals(Locale.getDefault().getCountry());
     }
 
-    /** "+1.2%" / "−0.8%" (a real minus sign). */
+    /** "+1.2%" / "−0.8%" (a real minus sign); "+1,2 %" in the languages that space the percent sign. */
     static String change(double v) {
         if (Double.isNaN(v)) return "";
-        return Ui.once("change", v, () -> (v >= 0 ? "+" : "−") + String.format(locale(), "%.1f%%", Math.abs(v)));
+        return Ui.once("change", v, () -> {
+            NumberFormat f = NumberFormat.getPercentInstance(locale());
+            f.setMinimumFractionDigits(1);
+            f.setMaximumFractionDigits(1);
+            return (v >= 0 ? "+" : "−") + f.format(Math.abs(v) / 100);
+        });
     }
 
     static String hour(long at) {
