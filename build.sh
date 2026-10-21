@@ -57,6 +57,10 @@ final class Config {
     static final String LANGUAGE = "$(prop language auto)";
     static final String CURRENCY = "$(prop currency USD)";
     static final String TEMPERATURE = "$(prop temperature auto)";
+    static final String LIVE_TV_APP = "$(prop live_tv_app '')";
+    static final String TITLE = "$(prop title for_you)";
+    static final String SOCCER_TEAM = "$(prop soccer_team '')";
+    static final String SOCCER_TEAM_CHANNEL = "$(prop soccer_team_channel '')";
     static final boolean DISABLE_ASSISTANT = $ASSIST;
     static final boolean SHOW_CRYPTO = $CRYPTO;
 }

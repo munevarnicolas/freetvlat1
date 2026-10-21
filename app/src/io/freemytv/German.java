@@ -21,13 +21,14 @@ final class German {
             case "Crypto": return "Krypto";
             case "24h change": return "Änderung in 24 h";
             case "For You": return "Für dich";
+            case "Learn today": return "Heute lernen";
+            case "Highlights": return "Highlights";
             case "Couldn't open ": return "Konnte nicht öffnen: ";
             case " of ": return " von ";
             case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";
             case "Moving ": return "Verschiebe ";
             case ", position ": return ", Position ";
             case ", tab ": return ", Tab ";
-            case " of 3": return " von 3";
             case "Dollar": return "Dollar";
             case "Series": return "Serie";
             case "prices from ": return "Kurse von ";

@@ -442,14 +442,18 @@ final class HomeMode {
     }
 
     /**
-     * What to turn off: the TV's own home screen and screensaver, Google TV's recovery home (when setupHome: the setup
-     * app is one of the TV's home screens), and the lists above.
+     * What to turn off: the TV's own home screen and screensaver, Google TV's home screen if it was installed besides
+     * it, Google TV's recovery home (when setupHome: the setup app is one of the TV's home screens), and the lists above.
      */
     private static List<String> targets(String home, String dream, boolean setupHome) {
         List<String> out = new ArrayList<>();
         String homePkg = packageOf(home);
         if (homePkg != null && !homePkg.equals(PKG)) out.add(homePkg);
         if (TV_LAUNCHER.equals(homePkg)) out.add(TV_RECOMMENDATIONS);
+        // Google TV's home screen installed on a classic Android TV (Hisense): a second home screen, so Android asks
+        // which one to use every time its choice is cleared (each update of this app). Original turns it back on.
+        String googleHome = packageOf(GOOGLE_HOME);
+        if (!googleHome.equals(homePkg)) out.add(googleHome);
         if (setupHome) out.add(GOOGLE_SETUP);
         String dreamPkg = packageOf(dream);
         if (dreamPkg != null && !dreamPkg.equals(PKG) && !dreamPkg.equals(homePkg)) out.add(dreamPkg);

@@ -7,6 +7,7 @@ import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,16 +26,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Optional crypto prices (Binance, every 5 min) and weather/sunrise/sunset (Open-Meteo, every 30 min), cached
+ * Optional crypto prices (CoinGecko, every 5 min) and weather/sunrise/sunset (Open-Meteo, every 30 min), cached
  * so the screen opens with numbers. Only fetched while the home screen or the screensaver is visible (the screen asks).
  * Neither source needs a key. Location and currency come from config.properties.
  */
 final class HomeData {
     static final String[] COINS = {"BTC", "ETH", "SOL", "USDT"};
     static final String[] COIN_NAMES = {"Bitcoin", "Ethereum", "Solana", "Dollar"};
+    /** CoinGecko's ids for COINS. It answers from countries Binance blocks (Canada) and in any currency (CAD). */
+    private static final String[] COIN_IDS = {"bitcoin", "ethereum", "solana", "tether"};
     private static final String CURRENCY = Config.CURRENCY.trim().toUpperCase(Locale.ROOT);
-    /** Binance quotes dollars as USDT. */
-    private static final String QUOTE = CURRENCY.equals("USD") ? "USDT" : CURRENCY;
+    private static final String QUOTE = CURRENCY.toLowerCase(Locale.ROOT);
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
             + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
 
@@ -48,7 +50,7 @@ final class HomeData {
     private static final long PRICES_EVERY = 5 * 60_000L, WEATHER_EVERY = 30 * 60_000L;
     interface Listener { void onData(); }
 
-    /** BTC, ETH and SOL; in Brazilian reais also the dollar (USDT/BRL), which Binance doesn't list for most currencies. */
+    /** BTC, ETH and SOL; in Brazilian reais also the dollar (USDT/BRL). */
     static int coinCount() {
         return Prefs.quotes() ? active().length : 0;
     }
@@ -56,7 +58,7 @@ final class HomeData {
     private static volatile int[] activeCoins;
     private static volatile int activeVersion = -1;
 
-    /** Indexes in COINS of the coins the user has on (and that Binance lists in this currency). */
+    /** Indexes in COINS of the coins the user has on (the dollar only in Brazilian reais). */
     static int[] active() {
         int[] a = activeCoins;
         if (a != null && activeVersion == Prefs.version) return a;
@@ -82,10 +84,10 @@ final class HomeData {
     }
 
     private static String pricesUrl() {
-        StringBuilder symbols = new StringBuilder();
+        StringBuilder ids = new StringBuilder();
         int[] coins = active();
-        for (int i = 0; i < coins.length; i++) symbols.append(i == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(QUOTE).append("%22");
-        return "https://api.binance.com/api/v3/ticker/24hr?type=MINI&symbols=%5B" + symbols + "%5D";
+        for (int i = 0; i < coins.length; i++) ids.append(i == 0 ? "" : ",").append(COIN_IDS[coins[i]]);
+        return "https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=" + QUOTE + "&include_24hr_change=true";
     }
 
     static final class Weather {
@@ -189,20 +191,16 @@ final class HomeData {
     }
 
     private void parsePrices(String body) throws Exception {
-        JSONArray list = new JSONArray(body);
-        String quote = QUOTE;
+        // A cache from before CoinGecko (Binance's list) isn't an object: fetch again.
+        Object parsed = new JSONTokener(body).nextValue();
+        JSONObject list = parsed instanceof JSONObject ? (JSONObject) parsed : new JSONObject();
         int found = 0;
-        for (int i = 0; i < list.length(); i++) {
-            JSONObject o = list.getJSONObject(i);
-            String symbol = o.getString("symbol");
-            for (int k = 0; k < COINS.length; k++) {
-                if (!symbol.equals(COINS[k] + quote)) continue;
-                found++;
-                double last = Double.parseDouble(o.optString("lastPrice", o.optString("price", "NaN")));
-                double open = Double.parseDouble(o.optString("openPrice", "NaN"));
-                prices[k] = last;
-                changes[k] = open > 0 ? (last - open) / open * 100 : Double.NaN;
-            }
+        for (int k = 0; k < COINS.length; k++) {
+            JSONObject o = list.optJSONObject(COIN_IDS[k]);
+            if (o == null || !o.has(QUOTE)) continue;
+            found++;
+            prices[k] = o.optDouble(QUOTE);
+            changes[k] = o.optDouble(QUOTE + "_24h_change");
         }
         if (found == 0) pricesAt = 0;   // cached in another currency (config changed): fetch again
     }

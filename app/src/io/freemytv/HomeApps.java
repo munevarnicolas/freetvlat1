@@ -24,6 +24,7 @@ import android.graphics.drawable.Drawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.Uri;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.View;
@@ -54,7 +55,7 @@ import java.util.regex.Pattern;
 final class HomeApps {
     private HomeApps() {}
 
-    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
+    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, VIDEO = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
@@ -63,6 +64,7 @@ final class HomeApps {
     static final class Item {
         int kind;
         String key, label, pkg, inputId, number;
+        String uri;         // VIDEO: the link the app plays
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
@@ -231,6 +233,14 @@ final class HomeApps {
         return it;
     }
 
+    /** A video that `pkg` plays straight away (the "Learn today" card). */
+    static Item video(String pkg, String label, String uri) {
+        Item it = app(pkg, label);
+        it.kind = VIDEO;
+        it.uri = uri;
+        return it;
+    }
+
     /** For the bottom drawer: live TV and every HDMI input (the ones with no device are shown dimmed). */
     static List<Item> allInputs(Context c) {
         List<Item> items = new ArrayList<>();
@@ -369,6 +379,9 @@ final class HomeApps {
             case LIVE_TV:
                 intent = liveTv(a);
                 break;
+            case VIDEO:
+                intent = new Intent(Intent.ACTION_VIEW, Uri.parse(it.uri)).setPackage(it.pkg);
+                break;
             case INPUT:
                 intent = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(it.inputId));
                 break;
@@ -398,6 +411,12 @@ final class HomeApps {
      */
     static Intent liveTv(Context c) {
         PackageManager pm = c.getPackageManager();
+        // config.properties "live_tv_app" (an IPTV player such as TiviMate) wins over the antenna, when installed.
+        String chosen = Config.LIVE_TV_APP.trim();
+        if (!chosen.isEmpty()) {
+            Intent app = launchIntent(pm, chosen);
+            if (app != null) return app;
+        }
         String tuner = tunerInput(c);
         Intent mediaTek = launchIntent(pm, "com.mediatek.wwtv.tvcenter");
         if (mediaTek != null && tuner != null) {
