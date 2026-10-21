@@ -168,6 +168,13 @@ final class Ui {
                 : new SimpleDateFormat("HH:mm", locale()).format(new Date(now));
     }
 
+    /** Header clock follows the TV's 12/24-hour setting without changing the screensaver's existing format. */
+    static String headerClock(Context context, long now) {
+        boolean is24Hour = android.text.format.DateFormat.is24HourFormat(context);
+        String pattern = android.text.format.DateFormat.getBestDateTimePattern(locale(), is24Hour ? "Hm" : "hm");
+        return new SimpleDateFormat(pattern, locale()).format(new Date(now));
+    }
+
     /** "5:21" (sunrise and sunset; in English, "5:21 AM"). */
     static String time(long at) {
         return once("time", at, () -> en ? new SimpleDateFormat("h:mm a", Locale.US).format(new Date(at))

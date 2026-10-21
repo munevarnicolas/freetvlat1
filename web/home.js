@@ -135,6 +135,7 @@
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0};
   var cards = [];
+  var headerClockTimer = 0;
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT; }
 
@@ -193,6 +194,7 @@
 
   function renderTop() {
     $('title').textContent = tr('Para você', 'For You', 'Para ti');
+    layoutHeaderStatus();
     var tabs = $('tabs');
     tabs.innerHTML = '';
     var names = [tr('Explorar', 'Explore', 'Explorar'), tr('Filmes', 'Movies', 'Películas'), tr('Séries', 'Shows', 'Series')];
@@ -211,6 +213,55 @@
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
     }
+  }
+
+  function layoutHeaderStatus() {
+    var title = $('title'), box = HeaderStatus.layout(title.offsetLeft + title.offsetWidth, 1596);
+    $('header-status').style.left = box.left + 'px';
+    $('header-status').style.width = box.width + 'px';
+  }
+
+  var headerStatusKey = '';
+
+  function renderHeaderStatus(force) {
+    var now = Date.now(), date = new Date(now), weather = Data.weather;
+    var key = [Math.floor(now / 60000), date.getTimezoneOffset(), I18N.locale(), Prefs.version,
+      Prefs.weather(), Data.weatherAt, weather && weather.temp, weather && weather.code, weather && weather.isDay].join('|');
+    if (!force && key === headerStatusKey) return;
+    headerStatusKey = key;
+    var status = $('header-status'), formatted = HeaderStatus.format(now, I18N.locale(), navigator.language || undefined,
+      function (at) { return Data.time(at); });
+    status.querySelector('.date').textContent = formatted.date;
+    status.querySelector('.time').textContent = formatted.time;
+    var weatherBox = status.querySelector('.weather'), icon = weatherBox.querySelector('.sym');
+    if (!Prefs.weather()) {
+      weatherBox.style.display = 'none';
+      status.setAttribute('aria-label', formatted.date + ', ' + formatted.time);
+      return;
+    }
+    weatherBox.style.display = '';
+    var hasTemp = weather && weather.temp !== undefined && weather.temp !== null && !isNaN(weather.temp);
+    var validCode = hasTemp && weather.code >= 0 && weather.code <= 99;
+    var symbol = validCode ? Data.symbol(weather.code, weather.isDay) : '';
+    icon.style.webkitMaskImage = symbol ? 'url(symbols/' + symbol + '.png)' : 'none';
+    icon.style.maskImage = symbol ? 'url(symbols/' + symbol + '.png)' : 'none';
+    setClass(icon, 'empty', !symbol);
+    var temp = weatherBox.querySelector('.temperature'), staleNode = weatherBox.querySelector('.stale');
+    temp.textContent = hasTemp ? Data.degrees(weather.temp) : '—';
+    var stale = hasTemp ? Data.staleness(Data.weatherAt, 30 * 60000) : '';
+    staleNode.textContent = stale ? '· ' + stale : '';
+    staleNode.style.display = stale ? '' : 'none';
+    var spoken = formatted.date + ', ' + formatted.time + '. ';
+    if (!hasTemp) {
+      spoken += tr('Sem dados do clima agora.', 'No weather data right now.', 'No hay datos del clima ahora.');
+    } else {
+      spoken += tr('Clima', 'Weather', 'Clima') + ': ';
+      if (Data.city) spoken += Data.city + ', ';
+      spoken += Data.degrees(weather.temp);
+      if (validCode) spoken += ', ' + Data.condition(weather.code, weather.isDay);
+      if (stale) spoken += ', ' + stale;
+    }
+    status.setAttribute('aria-label', spoken);
   }
 
   function renderQuotes() {
@@ -472,7 +523,7 @@
       {label: tr('Tema', 'Theme', 'Tema'), value: theme === 'light' ? tr('Claro', 'Light', 'Claro') : theme === 'dark' ? tr('Escuro', 'Dark', 'Oscuro') : auto,
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
       {label: tr('Widget do clima', 'Weather widget', 'Widget del clima'), toggle: Prefs.weather(),
-        step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
+        step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); renderHeaderStatus(true); }},
       {label: tr('Widget de cotações', 'Quotes widget', 'Widget de cotizaciones'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
     ];
@@ -825,6 +876,7 @@
     renderQuotes();
     cards = [];
     renderCards();
+    renderHeaderStatus(true);
     renderShelf();
     renderDrawer();
     renderClock();
@@ -859,6 +911,7 @@
     renderQuotes();
     renderCards();
     renderPanels();
+    renderHeaderStatus(true);
     checkNight();
   });
 
@@ -868,8 +921,10 @@
   document.addEventListener('webOSRelaunch', reopened);   // LG: opened again while running
   window.addEventListener('appcontrol', reopened);        // Samsung: the same
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hideSaver(); return; }
+    if (document.hidden) { hideSaver(); stopHeaderClock(); return; }
     idleAt = Date.now();
+    renderHeaderStatus(true);
+    startHeaderClock();
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
   });
 
@@ -879,9 +934,11 @@
   loadApps(function () {
     renderAll();
     Data.refresh();
+    startHeaderClock();
   });
   setInterval(function () {
     renderClock();
+    renderHeaderStatus(false);
     checkNight();
     Data.refresh();
     if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
@@ -890,4 +947,14 @@
 
   // For the browser preview and tests.
   window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast};
+
+  function startHeaderClock() {
+    if (headerClockTimer || document.hidden) return;
+    headerClockTimer = setInterval(function () { renderHeaderStatus(false); }, 1000);
+  }
+  function stopHeaderClock() {
+    if (!headerClockTimer) return;
+    clearInterval(headerClockTimer);
+    headerClockTimer = 0;
+  }
 })();

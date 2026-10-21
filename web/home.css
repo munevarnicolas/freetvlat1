@@ -130,6 +130,41 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night .tab { color: rgba(245, 245, 247, 0.62); }
 .night .tab.focus { color: #1D1D1F; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4); }
 
+/* Local date, clock and cached weather: separate from the utility-button tooltips and quote row. */
+#header-status {
+  position: absolute;
+  left: 1120px;
+  top: 69px;
+  width: 448px;
+  height: 68px;
+  text-align: right;
+  color: #6E6E73;
+  -webkit-transition: color 2s;
+  transition: color 2s;
+}
+#header-status .date {
+  height: 30px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 30px;
+}
+#header-status .details {
+  height: 34px;
+  white-space: nowrap;
+  font-feature-settings: 'tnum';
+}
+#header-status .time { font-size: 22px; font-weight: 500; line-height: 34px; }
+#header-status .weather { display: inline-block; margin-left: 12px; font-size: 22px; line-height: 34px; }
+#header-status .weather .sym { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
+#header-status .weather .sym.empty { display: none; }
+#header-status .weather .stale { margin-left: 10px; color: #8E8E93; font-size: 15px; }
+.night #header-status { color: rgba(245, 245, 247, 0.72); }
+.night #header-status .weather .stale { color: rgba(245, 245, 247, 0.48); }
+.no-picks #header-status { display: none; }
+
 /* Crypto quotes at the right end of the tab row: a quiet detail. */
 #quotes {
   position: absolute;

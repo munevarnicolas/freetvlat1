@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,9 +46,8 @@ import java.util.function.Consumer;
 
 /**
  * The home screen, styled after the Apple TV app with the macOS 27 glass:
- *  - at the top left, the "For You" title and the tabs (Explore, Movies, Shows); at the top right, icon-only glass
- *    buttons (Live TV, HDMI Inputs, Settings), with the focused one's name below it, and the small crypto quotes
- *    (logo + price) at the right end of the tab row;
+ *  - at the top left, the "For You" title and the tabs (Explore, Movies, Shows); at the top right, a compact local
+ *    date/time/weather status, icon-only glass buttons (Live TV, HDMI Inputs, Settings) and the crypto quotes;
  *  - three cards with the titles recommended for right now in the selected tab (Recs, from TMDB); the background is
  *    the first card's photo, heavily blurred and almost white (Backdrop); without one, a light gradient;
  *  - at the bottom, the glass shelf with the apps (icons in each brand's color, like the tvOS Dock; the focused one
@@ -101,7 +101,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TABS_ES = {"Explorar", "Películas", "Series"};
     private static final String[] TABS_DE = {"Entdecken", "Filme", "Serien"};
     private static final String[] TAB_KIND = {null, "movie", "tv"};
-    private static final int Z_TOP = 4, Z_CARDS = 5;
+    private static final int Z_TOP = 4, Z_CARDS = 5, HEADER_INFO = 7;
 
     private final Activity activity;
     private final Scene scene = new Scene();
@@ -118,7 +118,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public int focused() { return a11yFocused(); }
         @Override public void focus(int id) { a11yFocus(id); }
         @Override public void click(int id) { activate(); }
-        @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
+        @Override public boolean clickable(int id) {
+            int group = (id - 1) / 1000;
+            return group != WIDGETS && group != HEADER_INFO;
+        }
     });
     private final RectF a11yRect = new RectF();
     private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer;
@@ -230,13 +233,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int w, h;
     private float k = 1;
     private String clockText = "", dateText = "", weatherLine = "";
+    private String headerDate = "", headerTime = "", headerTemp = "", headerStale = "", headerSymbol = "", headerSpoken = "";
     private long weatherLineAt = -1;
     private int weatherLinePrefs = -1;
     private String weatherLineLanguage = "";
-    private long clockMinute = -1;
+    private long clockMinute = Long.MIN_VALUE, headerWeatherAt = Long.MIN_VALUE;
+    private String clockZone = "", headerLanguage = "";
+    private int headerPrefs = -1;
+    private boolean clock24Hour;
+    private final float[] headerBounds = new float[4];
+    private final RectF headerStatusRect = new RectF();
+    private float headerDetailsWidth, headerTimeWidth, headerSymbolSize, headerTempWidth, headerStaleWidth;
     private boolean okDown, backDown;
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
+    private Paint headerDatePaint, headerDetailPaint, headerStalePaint;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
     private Paint pricePaint, changePaint, sheetTitle;
     private TextPaint titlePaint, gridLabel, toastPaint;
@@ -581,6 +592,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lClock.setLetterSpacing(-0.01f);
         lWeather = Ui.text(Ui.medium, 34 * k, L_DIM);
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
+        headerDatePaint = Ui.text(Ui.medium, 22 * k, L_DIM);
+        headerDatePaint.setTextAlign(Paint.Align.RIGHT);
+        headerDetailPaint = Ui.numbers(Ui.medium, 22 * k, L_DIM);
+        headerDetailPaint.setTextAlign(Paint.Align.LEFT);
+        headerStalePaint = Ui.text(Ui.medium, 16 * k, L_FAINT);
+        headerStalePaint.setTextAlign(Paint.Align.LEFT);
         lightGradient = null;
         buttonPaint = Ui.text(Ui.semibold, 29 * k, INK);
         capsuleText = Ui.numbers(Ui.medium, 29 * k, 0xF2FFFFFF);
@@ -665,11 +682,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (updateClock()) {
             layoutStatus();
             status.invalidate();
-            if (hero != null && hero.clock) {
+            if (picksOn()) {
+                heroLayer.invalidate();
+            } else if (hero != null && hero.clock) {
                 refreshHero(false);
                 heroLayer.invalidate();
             }
-            if (!picksOn()) heroLayer.invalidate();
         }
 
         // Busy: something is moving, or the sheet or the drawer is open.
@@ -723,13 +741,99 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private boolean updateClock() {
+        if (clockPaint == null || headerDatePaint == null || headerDetailPaint == null || headerStalePaint == null) return false;
         long now = System.currentTimeMillis();
         long minute = now / 60_000;
-        if (minute == clockMinute || clockPaint == null) return false;
+        String zone = TimeZone.getDefault().getID();
+        boolean is24Hour = android.text.format.DateFormat.is24HourFormat(activity);
+        if (minute == clockMinute && zone.equals(clockZone) && is24Hour == clock24Hour
+                && Prefs.version == headerPrefs && Ui.language.equals(headerLanguage)
+                && data.weatherAt == headerWeatherAt) return false;
         clockMinute = minute;
+        clockZone = zone;
+        clock24Hour = is24Hour;
+        headerPrefs = Prefs.version;
+        headerLanguage = Ui.language;
+        headerWeatherAt = data.weatherAt;
         clockText = Ui.clock(now);
         dateText = Ui.date(now);
+        headerDate = dateText;
+        headerTime = Ui.headerClock(activity, now);
+        updateHeaderWeather();
         return true;
+    }
+
+    private void updateHeaderWeather() {
+        HomeData.Weather wx = data.weather;
+        headerSymbol = "";
+        headerTemp = "";
+        headerStale = "";
+        headerSymbolSize = 22 * k;
+        if (Prefs.weather()) {
+            if (Double.isNaN(wx.temp)) {
+                headerTemp = "—";
+            } else {
+                headerTemp = HomeData.degrees(wx.temp);
+                if (wx.code >= 0 && wx.code <= 99) headerSymbol = Symbols.weather(wx.code, wx.isDay);
+                headerStale = HomeData.staleness(data.weatherAt, 30 * 60_000L);
+            }
+        }
+        headerTimeWidth = headerDetailPaint.measureText(headerTime);
+        headerTempWidth = headerDetailPaint.measureText(headerTemp);
+        headerStaleWidth = headerStalePaint.measureText(headerStale);
+        float weatherWidth = Prefs.weather()
+                ? 12 * k + (headerSymbol.isEmpty() ? 0 : headerSymbolSize + 8 * k) + headerTempWidth
+                : 0;
+        headerDetailsWidth = headerTimeWidth + weatherWidth
+                + (headerStale.isEmpty() ? 0 : 12 * k + headerStaleWidth);
+        StringBuilder spokenText = new StringBuilder(headerDate).append(", ").append(headerTime);
+        if (Prefs.weather()) {
+            spokenText.append(". ");
+            if (Double.isNaN(wx.temp)) {
+                spokenText.append(Ui.tr("Sem dados do clima agora.", "No weather data right now."));
+            } else {
+                spokenText.append(Ui.tr("Clima", "Weather")).append(": ");
+                if (!Prefs.city().isEmpty()) spokenText.append(Prefs.city()).append(", ");
+                spokenText.append(headerTemp);
+                if (wx.code >= 0 && wx.code <= 99) spokenText.append(", ").append(HomeData.condition(wx.code, wx.isDay));
+                if (!headerStale.isEmpty()) spokenText.append(", ").append(headerStale);
+            }
+        }
+        headerSpoken = spokenText.toString();
+    }
+
+    private void layoutHeaderStatus() {
+        if (headerDatePaint == null || topRects[3].isEmpty()) return;
+        String title = Ui.tr("Para você", "For You");
+        float titleRight = MARGIN * k + lTitle.measureText(title) - Ui.leftBearing(lTitle, title);
+        HomeHeaderLayout.apply(headerBounds, topRects[3].left, titleRight, k);
+        headerStatusRect.set(headerBounds[0], headerBounds[1], headerBounds[2], headerBounds[3]);
+    }
+
+    private void drawHeaderStatus(Canvas c) {
+        if (headerDate.isEmpty()) return;
+        float right = headerStatusRect.right, top = headerStatusRect.top;
+        headerDatePaint.setColor(tone(L_DIM, 0xB3FFFFFF));
+        headerDetailPaint.setColor(tone(L_DIM, 0xE6FFFFFF));
+        headerStalePaint.setColor(tone(L_FAINT, 0x99FFFFFF));
+        c.drawText(headerDate, right, top + 25 * k, headerDatePaint);
+        float x = right - headerDetailsWidth;
+        c.drawText(headerTime, x, top + 61 * k, headerDetailPaint);
+        x += headerTimeWidth;
+        if (Prefs.weather()) {
+            x += 12 * k;
+            if (!headerSymbol.isEmpty()) {
+                Symbols.draw(getContext(), c, headerSymbol, x + headerSymbolSize / 2,
+                        top + 61 * k - Ui.halfCap(headerDetailPaint), headerSymbolSize, headerDetailPaint.getColor());
+                x += headerSymbolSize + 8 * k;
+            }
+            c.drawText(headerTemp, x, top + 61 * k, headerDetailPaint);
+            x += headerTempWidth;
+            if (!headerStale.isEmpty()) {
+                x += 12 * k;
+                c.drawText(headerStale, x, top + 61 * k, headerStalePaint);
+            }
+        }
     }
 
     private void updatePalette() {
@@ -2382,6 +2486,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
+        if (picksOn()) out.add(a11yId(HEADER_INFO, 0));
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
@@ -2399,6 +2504,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= 3) return label(lightButtons, i - 3);
                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
             case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
+            case HEADER_INFO: return i == 0 ? headerSpoken : "";
             case Z_SHELF:
                 if (reordering && i == shelfIndex) {
                     return Ui.tr("Movendo ", "Moving ", "Moviendo ") + label(shelf, i)
@@ -2436,6 +2542,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (i >= Math.min(3, cards.size())) return false;
                 a11yRect.set(cardRects[i]);
+                dy = heroLayer.getTranslationY();
+                break;
+            case HEADER_INFO:
+                if (i != 0 || !picksOn()) return false;
+                a11yRect.set(headerStatusRect);
                 dy = heroLayer.getTranslationY();
                 break;
             case Z_SHELF:
@@ -2496,6 +2607,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void a11yFocus(int id) {
         wake();
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
+        if (group == HEADER_INFO) return;
         if (group == GRID) {
             if (!sheetOpen || i >= others.size()) return;
             gridIndex = i;
@@ -2606,6 +2718,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         cardRects[0].set(left, top, left + wide, top + ch);
         cardRects[1].set(cardRects[0].right + g, top, cardRects[0].right + g + tall, top + ch);
         cardRects[2].set(cardRects[1].right + g, top, cardRects[1].right + g + tall, top + ch);
+        layoutHeaderStatus();
         heroDirty = statusDirty = true;
     }
 
@@ -2706,6 +2819,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
+        drawHeaderStatus(c);
         int top = -1;
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
