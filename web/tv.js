@@ -171,8 +171,11 @@ var TV = (function () {
         return;
       }
       luna('luna://com.webos.applicationManager/listLaunchPoints', {}, function (res) {
+        // Some webOS builds deny listing apps to sideloaded apps ("Denied method call listLaunchPoints") even
+        // with requiredPermissions set; launch(id) still works there, so fall back to common LG app ids.
+        if (!res) { done(SAMPLE.map(function (s) { return {id: s[0], title: s[1], icon: '', color: s[2]}; })); return; }
         var out = [];
-        var points = res && res.launchPoints ? res.launchPoints : [];
+        var points = res.launchPoints || [];
         for (var i = 0; i < points.length; i++) {
           var p = points[i];
           if (!p.id || p.id === self || HIDDEN.test(p.id)) continue;
