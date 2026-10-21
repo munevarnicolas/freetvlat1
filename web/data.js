@@ -137,6 +137,27 @@ var Data = (function () {
     });
   }
 
+  // MARK: - Photo of the day (Bing, no key: the "Photo of the day" theme, shown only without picks)
+
+  var wallpaper = stored('wallpaper'), fetchingWallpaper = false, wallpaperFailedAt = 0;
+
+  function refreshWallpaper() {
+    var now = Date.now();
+    if (Prefs.theme() !== 'photo' || KEY || fetchingWallpaper) return;
+    if (wallpaper && now - wallpaper.at < 6 * 3600000 && now >= wallpaper.at) return;
+    if (wallpaperFailedAt && now - wallpaperFailedAt < 30 * 60000 && now >= wallpaperFailedAt) return;
+    fetchingWallpaper = true;
+    get('https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=' + I18N.locale(), {}, function (err, body) {
+      fetchingWallpaper = false;
+      var day = !err && body && body.images && body.images[0];
+      if (!day || !day.url) { wallpaperFailedAt = Date.now(); return; }
+      wallpaperFailedAt = 0;
+      wallpaper = {url: 'https://www.bing.com' + day.url, caption: day.copyright || '', at: Date.now()};
+      store('wallpaper', wallpaper);
+      changed();
+    });
+  }
+
   // MARK: - Prices
 
   var COINS = ['BTC', 'ETH', 'SOL', 'USDT'];
@@ -472,7 +493,7 @@ var Data = (function () {
     onChange: function (fn) { listeners.push(fn); },
     setApps: function (apps) { installed = apps; },
     appFor: appFor,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshWallpaper(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     get weather() { return weather; },
     get weatherAt() { return weatherAt; },
@@ -481,6 +502,8 @@ var Data = (function () {
     get pricesAt() { return pricesAt; },
     activeCoins: activeCoins,
     hasKey: function () { return !!KEY; },
+    /** The photo of the day ({url, caption}) when its theme is on and there are no picks; otherwise null. */
+    wallpaper: function () { return Prefs.theme() === 'photo' && !KEY && wallpaper ? wallpaper : null; },
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,

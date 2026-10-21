@@ -266,7 +266,7 @@ final class HomeData {
         return out;
     }
 
-    private static String get(String url) throws IOException {
+    static String get(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(6000);
         c.setReadTimeout(6000);

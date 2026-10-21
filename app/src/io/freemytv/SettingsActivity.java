@@ -624,7 +624,7 @@ public class SettingsActivity extends Activity {
 
         // MARK: - Home Settings and Remote Buttons
 
-        private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
+        private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark", "photo"};
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int CITY_ROW = 4, COIN_ROWS = 6;
 
@@ -656,7 +656,8 @@ public class SettingsActivity extends Activity {
             String unit = Prefs.temperature();
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
             String theme = Prefs.theme();
-            v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
+            v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark")
+                    : theme.equals("photo") && !Recs.hasKey(getContext()) ? Ui.tr("Foto do dia", "Photo of the day") : Ui.tr("Automático", "Automatic");
             v[3] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[5] = onOff(Prefs.quotes());
@@ -727,8 +728,11 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 case 2: {
+                    // The photo of the day shows only without picks (with them, the first card's photo is the background).
+                    int n = Recs.hasKey(getContext()) ? THEMES.length - 1 : THEMES.length;
                     int at = java.util.Arrays.asList(THEMES).indexOf(Prefs.theme());
-                    Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
+                    if (at >= n) at = 0;
+                    Prefs.setTheme(THEMES[(at + dir + n) % n]);
                     break;
                 }
                 case 3: Prefs.setWeather(!Prefs.weather()); break;

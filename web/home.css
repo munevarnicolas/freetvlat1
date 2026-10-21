@@ -68,6 +68,26 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .drawer-open #sky .lift { opacity: 0.32; }
 .night.drawer-open #sky .lift { opacity: 0.42; }
 
+/* The photo of the day (its theme, without picks): sharp, shaded at the left (the clock), the bottom (the shelf) and
+   the top (the buttons and the caption), like HomeView's scrims. */
+#photo {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  background-size: cover; background-position: center;
+  opacity: 0; -webkit-transition: opacity 0.8s; transition: opacity 0.8s;
+}
+#photo.on { opacity: 1; }
+#photo .shade {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  background:
+    -webkit-linear-gradient(top, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0.1) 12%, rgba(0, 0, 0, 0) 24%),
+    -webkit-linear-gradient(bottom, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.3) 15%, rgba(0, 0, 0, 0.18) 33%, rgba(0, 0, 0, 0.05) 48%, rgba(0, 0, 0, 0) 60%),
+    -webkit-linear-gradient(left, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0.52) 17%, rgba(0, 0, 0, 0.26) 37%, rgba(0, 0, 0, 0.07) 54%, rgba(0, 0, 0, 0) 68%);
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0.1) 12%, rgba(0, 0, 0, 0) 24%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.3) 15%, rgba(0, 0, 0, 0.18) 33%, rgba(0, 0, 0, 0.05) 48%, rgba(0, 0, 0, 0) 60%),
+    linear-gradient(to right, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0.52) 17%, rgba(0, 0, 0, 0.26) 37%, rgba(0, 0, 0, 0.07) 54%, rgba(0, 0, 0, 0) 68%);
+}
+
 /* MARK: - Moving parts: the top fades and everything rises when the drawer opens. */
 
 /* Each part is its own stack, so a focused tile (z-index) never shows over the drawer, a sheet or the screensaver. */
@@ -280,6 +300,15 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .no-picks #clock { display: block; }
 .night #clock { color: #F5F5F7; }
 .night #clock .date { color: rgba(245, 245, 247, 0.62); }
+
+/* The photo of the day's caption (what it shows and whose it is), above the shelf (the title and tabs are at the top). */
+#caption {
+  position: absolute; left: 80px; top: 766px; max-width: 1760px;
+  font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.65); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: none;
+}
+.photo.no-picks #caption { display: block; }
 
 /* MARK: - Shelf: the glass bar with the apps, each in its brand color; focused, a tile grows 20% and rises. */
 

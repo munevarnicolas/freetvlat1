@@ -58,7 +58,7 @@ import java.util.function.Consumer;
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener, Wallpaper.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -93,6 +93,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
+    // The photo's caption: on the buttons' line, ending before them.
+    private static final float L_CAPTION_BASE = 110, L_CAPTION_R = 1520;
     private static final float L_DATE_BASE = 330, L_CLOCK_BASE = 540, L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
     private static final String[] TABS = {"Explorar", "Filmes", "Séries"};
@@ -107,6 +109,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
+    private final Wallpaper wallpaper;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -144,6 +147,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] cardRects = new RectF[3];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
+    private TextPaint lCaption;
     private Shader lightGradient;
 
     // Shelf
@@ -233,6 +237,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long weatherLineAt = -1;
     private int weatherLinePrefs = -1;
     private String weatherLineLanguage = "";
+    private String captionLine = "", captionFrom;   // the photo's caption, shortened to fit (and its source)
     private long clockMinute = -1;
     private boolean okDown, backDown;
 
@@ -341,6 +346,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePalette();
             checkNight(true);
             updatePicks();      // three new ones every hour
+            if (!picksOn()) wallpaper.refreshIfStale();
             handler.postDelayed(this, 15_000);
         }
     };
@@ -350,6 +356,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        wallpaper = Wallpaper.get(a);
         click = new Click(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
@@ -404,8 +411,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastStep = 0;
         data.addListener(this);
         recs.addListener(this);
+        wallpaper.setListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
+        if (!picksOn()) wallpaper.refreshIfStale();
+        onWallpaper();   // the theme may have changed in Home Settings
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -432,6 +442,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
+        wallpaper.setListener(null);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -488,6 +499,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     @Override public void onRecs() {
         wake();
         updatePicks();
+    }
+
+    /** The photo of the day arrived, or its theme was picked or left: the dark look, the glass and the background follow. */
+    @Override public void onWallpaper() {
+        wake();
+        checkNight(running);
+        if (bgTo == null && bgFadeAt == 0) neutralGlass();
+        heroDirty = statusDirty = tilesDirty = drawerDirty = true;
+        sky.invalidate();
+        platter.invalidate();
+    }
+
+    /** Bing's photo of the day, with its theme on and no picks to show instead. */
+    private Backdrop photo() {
+        return Prefs.theme().equals("photo") && !picksOn() ? wallpaper.backdrop() : null;
     }
 
     private void invalidateAll() {
@@ -581,6 +607,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lClock.setLetterSpacing(-0.01f);
         lWeather = Ui.text(Ui.medium, 34 * k, L_DIM);
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
+        lCaption = new TextPaint(Ui.text(Ui.medium, 22 * k, 0xA6FFFFFF));
+        lCaption.setShadowLayer(12 * k, 0, 1 * k, 0x80000000);
+        captionFrom = null;
         lightGradient = null;
         buttonPaint = Ui.text(Ui.semibold, 29 * k, INK);
         capsuleText = Ui.numbers(Ui.medium, 29 * k, 0xF2FFFFFF);
@@ -843,8 +872,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return glassNight;
     }
 
-    /** No photo: the glass reads the background's own gray (not Scene's default aurora, which isn't on screen). */
+    /** No pick's photo: the glass reads the photo of the day or the background's own gray (not Scene's default aurora). */
     private void neutralGlass() {
+        Backdrop photo = photo();
+        if (photo != null) {
+            scene.setFrost(photo.frost);
+            scene.setGlassImage(photo.glass);
+            nightPair = false;
+            return;
+        }
         int color = blend(0xFFEBEBF0, 0xFF141416, night);
         java.util.Arrays.fill(neutralFrostPx, color);
         java.util.Arrays.fill(neutralGlassPx, color);
@@ -866,7 +902,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Day or night right now (from the sun at your location); `animate`: with the transition. */
     private void checkNight(boolean animate) {
-        boolean want = data.isNight(System.currentTimeMillis());
+        // On the photo of the day, the dark look at any hour: white text reads on a photo, dark text doesn't.
+        boolean want = data.isNight(System.currentTimeMillis()) || photo() != null;
         if (want == nightTarget) return;
         nightTarget = want;
         if (animate && running) {
@@ -2644,7 +2681,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean fading = bgFadeAt != 0;
         // Drawer open: the background lightens (by day) or darkens (at night), as a filter on the drawing itself.
         android.graphics.ColorFilter v = veil(tone(0.32f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, night));
-        if (bgTo == null || (fading && bgFrom == null)) {
+        Backdrop photo = bgTo == null || (fading && bgFrom == null) ? photo() : null;
+        if (photo != null) {
+            imagePaint.setColorFilter(v);
+            drawImage(c, photo.image, 1);
+        } else if (bgTo == null || (fading && bgFrom == null)) {
             if (lightGradient == null) lightGradient = new LinearGradient(0, 0, 0, h, 0xFFF5F5F7, 0xFFE2E2E7, Shader.TileMode.CLAMP);
             if (nightGradient == null) nightGradient = new LinearGradient(0, 0, 0, h, 0xFF1C1C1E, 0xFF0B0B0D, Shader.TileMode.CLAMP);
             fill.setColorFilter(v);
@@ -2677,6 +2718,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
+            drawCaption(c);
             if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }
@@ -2715,6 +2757,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private boolean picksOn() {
         return Recs.hasKey(getContext());
+    }
+
+    /** At the top left, across from the buttons: what is in the photo of the day and whose it is. */
+    private void drawCaption(Canvas c) {
+        if (photo() == null) return;
+        String caption = wallpaper.caption();
+        if (!caption.equals(captionFrom)) {
+            captionFrom = caption;
+            captionLine = TextUtils.ellipsize(caption, lCaption, (L_CAPTION_R - MARGIN) * k, TextUtils.TruncateAt.END).toString();
+        }
+        c.drawText(captionLine, MARGIN * k, L_CAPTION_BASE * k, lCaption);
     }
 
     private void drawClock(Canvas c) {
