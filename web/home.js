@@ -4,7 +4,8 @@
  *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
  *  - three picks for this hour in the selected tab; the background is the first one's photo, blurred and almost white;
  *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
- *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
+ *  - a night look from sunset to sunrise; a screensaver after a few idle minutes;
+ *  - without picks, the "Photo of the day" theme puts Bing's photo of the day behind the clock (always the dark look).
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
  */
 (function () {
@@ -275,6 +276,26 @@
     img.src = url;
   }
 
+  var photoUrl = null;
+
+  /** The photo of the day behind the clock (its theme, without picks), shown once loaded, with its caption. */
+  function renderPhoto() {
+    var w = Data.wallpaper(), url = w ? w.url : '';
+    setClass(body, 'photo', !!w);
+    $('caption').textContent = w ? w.caption : '';
+    if (url === photoUrl) return;
+    photoUrl = url;
+    var p = $('photo');
+    if (!url) { setClass(p, 'on', false); return; }
+    var img = new Image();
+    img.onload = function () {
+      if (photoUrl !== url) return;
+      p.style.backgroundImage = 'url(' + url + ')';
+      setClass(p, 'on', true);
+    };
+    img.src = url;
+  }
+
   function renderClock() {
     var d = new Date(), c = $('clock');
     c.firstChild.textContent = Data.time(d.getTime());
@@ -469,8 +490,15 @@
         step: function (d) { cycle('language', ['auto', 'de', 'en', 'es', 'pt', 'ru'], lang, d); I18N.set(Prefs.language()); renderAll(); }},
       {label: tr('Temperatura', 'Temperature', 'Temperatura'), value: unit === 'C' ? '°C' : unit === 'F' ? '°F' : auto,
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
-      {label: tr('Tema', 'Theme', 'Tema'), value: theme === 'light' ? tr('Claro', 'Light', 'Claro') : theme === 'dark' ? tr('Escuro', 'Dark', 'Oscuro') : auto,
-        step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
+      {label: tr('Tema', 'Theme', 'Tema'), value: theme === 'light' ? tr('Claro', 'Light', 'Claro') : theme === 'dark' ? tr('Escuro', 'Dark', 'Oscuro')
+          : theme === 'photo' && !Data.hasKey() ? tr('Foto do dia', 'Photo of the day', 'Foto del día') : auto,
+        step: function (d) {
+          // The photo of the day shows only without picks (with them, the first pick's photo is the background).
+          cycle('theme', Data.hasKey() ? ['auto', 'light', 'dark'] : ['auto', 'light', 'dark', 'photo'], theme, d);
+          Data.refresh();
+          renderPhoto();
+          checkNight();
+        }},
       {label: tr('Widget do clima', 'Weather widget', 'Widget del clima'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
       {label: tr('Widget de cotações', 'Quotes widget', 'Widget de cotizaciones'), toggle: Prefs.quotes(),
@@ -741,7 +769,8 @@
   // MARK: - Night, clock, screensaver
 
   function checkNight() {
-    setClass(body, 'night', Data.isNight(Date.now()));
+    // On the photo of the day, the dark look at any hour: white text reads on a photo, dark text doesn't.
+    setClass(body, 'night', Data.isNight(Date.now()) || !!Data.wallpaper());
   }
 
   var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, SAVER_AFTER = 5 * 60000;
@@ -828,6 +857,7 @@
     renderShelf();
     renderDrawer();
     renderClock();
+    renderPhoto();
     checkNight();
     if (st.zone === Z.SETTINGS) renderSettings();
     updateFocus();
@@ -859,6 +889,7 @@
     renderQuotes();
     renderCards();
     renderPanels();
+    renderPhoto();
     checkNight();
   });
 
