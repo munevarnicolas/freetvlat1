@@ -192,18 +192,17 @@
   var TAB_KIND = [null, 'movie', 'tv'];
 
   function renderTop() {
-    $('title').textContent = tr('Para você', 'For You', 'Para ti');
+    $('title').textContent = tr('For You');
     var tabs = $('tabs');
     tabs.innerHTML = '';
-    var names = [tr('Explorar', 'Explore', 'Explorar'), tr('Filmes', 'Movies', 'Películas'), tr('Séries', 'Shows', 'Series')];
+    var names = [tr('Explore'), tr('Movies'), tr('Shows')];
     for (var i = 0; i < 3; i++) {
       var t = el('button', 'tab', tabs, names[i]);
       hover(t, Z.TOP, i);
     }
     var buttons = $('buttons');
     buttons.innerHTML = '';
-    var defs = [['live_tv', tr('TV aberta', 'Live TV', 'TV en vivo')], ['hdmi', tr('Entradas HDMI', 'HDMI Inputs', 'Entradas HDMI')],
-      ['settings', tr('Ajustes', 'Settings', 'Ajustes')]];
+    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
     for (var b = 0; b < 3; b++) {
       var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
       r.style.left = (1596 + 88 * b) + 'px';
@@ -277,12 +276,8 @@
 
   function renderClock() {
     var d = new Date(), c = $('clock');
-    c.firstChild.textContent = Data.time(d.getTime());
-    try {
-      c.lastChild.textContent = d.toLocaleDateString(I18N.locale(), {weekday: 'long', day: 'numeric', month: 'long'});
-    } catch (e) {
-      c.lastChild.textContent = d.toDateString();
-    }
+    c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
+    c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
   }
 
   // MARK: - Shelf
@@ -318,21 +313,21 @@
     drawerItems = [];
     for (var i = 0; i < inputs.length; i++) {
       var x = inputs[i];
-      drawerItems.push({label: x.label || tr('TV aberta', 'Live TV', 'TV en vivo'), symbol: x.symbol, off: !x.connected, run: launcher(x.id, x.label)});
+      drawerItems.push({label: x.label || tr('Live TV'), symbol: x.symbol, off: !x.connected, run: launcher(x.id, x.label)});
     }
     drawerInputs = drawerItems.length;
-    drawerItems.push({label: tr('Todos os Apps', 'All Apps', 'Todas las apps'), symbol: 'apps', run: openApps});
-    drawerItems.push({label: tr('Ajustes do Início', 'Home Settings', 'Ajustes de inicio'), symbol: 'settings', run: openSettings});
-    drawerItems.push({label: tr('Ajustes da TV', 'TV Settings', 'Ajustes del TV'), symbol: 'tv_settings', run: tvSettings});
+    drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
+    drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
+    drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
     var n = drawerItems.length, gap = 18, groupGap = 56, groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
     var tw = Math.min(230, (1760 - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
     var xPos = 80;
     for (var k = 0; k < n; k++) {
       if (k === drawerInputs && k > 0) {
         xPos += groupGap - gap;
-        el('div', 'row-title', d, tr('Atalhos', 'Shortcuts', 'Accesos directos')).style.left = (xPos + 4) + 'px';
+        el('div', 'row-title', d, tr('Shortcuts')).style.left = (xPos + 4) + 'px';
       }
-      if (k === 0 && drawerInputs) el('div', 'row-title', d, tr('Entradas', 'Inputs', 'Entradas')).style.left = '84px';
+      if (k === 0 && drawerInputs) el('div', 'row-title', d, tr('Inputs')).style.left = '84px';
       var item = drawerItems[k], key = el('div', 'key glass' + (item.off ? ' off' : ''), d);
       key.style.left = xPos + 'px';
       key.style.width = tw + 'px';
@@ -369,18 +364,17 @@
   }
 
   function renderWeather(card) {
-    el('div', 'head', card, Data.city || tr('Clima', 'Weather', 'Clima'));
+    el('div', 'head', card, Data.city || tr('Weather'));
     var w = Data.weather;
     if (!w) {
-      el('div', 'cond', card, tr('Sem dados do clima agora.', 'No weather data right now.', 'No hay datos del clima ahora.')).style.top = '96px';
+      el('div', 'cond', card, tr('No weather data right now.')).style.top = '96px';
       return;
     }
     var now = el('div', 'now', card);
     sym(Data.symbol(w.code, w.isDay), now);
     el('span', 'temp', now, Data.degrees(w.temp));
     el('div', 'cond', card, Data.condition(w.code, w.isDay));
-    el('div', 'range', card, I18N.lang === 'ru' ? 'Макс. ' + Data.degrees(w.max) + '   Мин. ' + Data.degrees(w.min) : tr('Máx. ' + Data.degrees(w.max) + '   Mín. ' + Data.degrees(w.min), 'H:' + Data.degrees(w.max) + '   L:' + Data.degrees(w.min),
-        'Máx. ' + Data.degrees(w.max) + '   Mín. ' + Data.degrees(w.min)));
+    el('div', 'range', card, trf('H:{max}', {max: Data.degrees(w.max)}) + '   ' + trf('L:{min}', {min: Data.degrees(w.min)}));
     el('div', 'split', card);
     var hours = el('div', 'hours', card), width = parseFloat(card.style.width) - 30 - 422, hw = width / 6;
     for (var i = 0; i < w.hours.length && i < 6; i++) {
@@ -392,14 +386,14 @@
       el('div', 'd', h, Data.degrees(x.temp));
     }
     var sun = el('div', 'sun', card);
-    if (w.sunrise) { var a = el('span', '', sun); sym('sunrise', a); a.appendChild(document.createTextNode(tr('Nascer ', 'Sunrise ', 'Amanecer ') + Data.time(w.sunrise))); }
-    if (w.sunset) { var b = el('span', '', sun); sym('sunset', b); b.appendChild(document.createTextNode(tr('Pôr do sol ', 'Sunset ', 'Atardecer ') + Data.time(w.sunset))); }
+    if (w.sunrise) { var a = el('span', '', sun); sym('sunrise', a); a.appendChild(document.createTextNode(trf('Sunrise {time}', {time: Data.time(w.sunrise)}))); }
+    if (w.sunset) { var b = el('span', '', sun); sym('sunset', b); b.appendChild(document.createTextNode(trf('Sunset {time}', {time: Data.time(w.sunset)}))); }
   }
 
   function renderPrices(card, coins) {
-    el('div', 'head', card, tr('Cotações', 'Crypto', 'Cripto'));
+    el('div', 'head', card, tr('Crypto'));
     var stale = Data.staleness(Data.pricesAt, 5 * 60000);
-    el('div', 'side', card, stale || tr('variação em 24 h', '24h change', 'variación en 24 h'));
+    el('div', 'side', card, stale ? trf('quotes|{ago}', {ago: stale}) : tr('24h change'));
     for (var j = 0; j < coins.length; j++) {
       var i = coins[j], row = el('div', 'coin', card);
       row.style.top = (86 + 52 * j) + 'px';
@@ -430,7 +424,7 @@
 
   function renderApps() {
     var sheet = $('apps');
-    sheet.firstChild.textContent = tr('Todos os Apps', 'All Apps', 'Todas las apps');
+    sheet.firstChild.textContent = tr('All Apps');
     var grid = sheet.lastChild;
     grid.innerHTML = '';
     for (var i = 0; i < others.length; i++) {
@@ -463,20 +457,20 @@
 
   function settingRows() {
     var lang = Prefs.language(), unit = Prefs.temperature(), theme = Prefs.theme();
-    var auto = tr('Automático', 'Automatic', 'Automático'), on = tr('Ligado', 'On', 'Activado'), off = tr('Desligado', 'Off', 'Desactivado');
+    var auto = tr('Automatic'), choices = ['auto'].concat(I18N.languages());
     var rows = [
-      {label: tr('Idioma', 'Language', 'Idioma'), value: lang === 'ru' ? 'Русский' : lang === 'de' ? 'Deutsch' : lang === 'pt' ? 'Português' : lang === 'en' ? 'English' : lang === 'es' ? 'Español' : auto,
-        step: function (d) { cycle('language', ['auto', 'de', 'en', 'es', 'pt', 'ru'], lang, d); I18N.set(Prefs.language()); renderAll(); }},
-      {label: tr('Temperatura', 'Temperature', 'Temperatura'), value: unit === 'C' ? '°C' : unit === 'F' ? '°F' : auto,
+      {label: tr('Language'), value: choices.indexOf(lang) > 0 ? I18N.languageName(lang) : auto,
+        step: function (d) { cycle('language', choices, lang, d); I18N.set(Prefs.language()); renderAll(); }},
+      {label: tr('Temperature'), value: unit === 'C' ? '°C' : unit === 'F' ? '°F' : tr('unit|Automatic'),
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
-      {label: tr('Tema', 'Theme', 'Tema'), value: theme === 'light' ? tr('Claro', 'Light', 'Claro') : theme === 'dark' ? tr('Escuro', 'Dark', 'Oscuro') : auto,
+      {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark') : auto,
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
-      {label: tr('Widget do clima', 'Weather widget', 'Widget del clima'), toggle: Prefs.weather(),
+      {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
-      {label: tr('Widget de cotações', 'Quotes widget', 'Widget de cotizaciones'), toggle: Prefs.quotes(),
+      {label: tr('Quotes widget'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
     ];
-    var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dólar', 'Dollar', 'Dólar')];
+    var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dollar')];
     var count = Data.currency === 'BRL' ? 4 : 3;
     for (var i = 0; i < count; i++) {
       (function (i) {
@@ -484,8 +478,8 @@
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
     }
-    rows.push({label: tr('Prateleira', 'Shelf', 'Estante'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
-    rows.push({label: tr('Ajustes da TV', 'TV Settings', 'Ajustes del TV'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
+    rows.push({label: tr('Shelf'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
+    rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
   }
 
@@ -501,7 +495,7 @@
     box.innerHTML = '';
     var title = el('div', 'title', box);
     sym('settings', title);
-    title.appendChild(document.createTextNode(tr('Ajustes do Início', 'Home Settings', 'Ajustes de inicio')));
+    title.appendChild(document.createTextNode(tr('Home Settings')));
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     rowsNow = settingRows();
     list.style.height = Math.min(rowsNow.length, 7) * 78 + 'px';
@@ -515,7 +509,7 @@
       }
       hover(row, Z.SETTINGS, i);
     }
-    el('div', 'hint', box, tr('OK ou as setas mudam o valor.', 'OK or the arrows change the value.', 'OK o las flechas cambian el valor.'));
+    el('div', 'hint', box, tr('OK or the arrows change the value.'));
     updateFocus();
   }
 
@@ -528,14 +522,6 @@
   }
 
   // MARK: - Shelf editor: which apps, in what order
-
-  function ordinal(n) {
-    if (I18N.lang === 'ru') return n + '-е';
-    if (I18N.lang === 'de') return n + '.';
-    if (I18N.lang !== 'en') return n + 'º';
-    var s = ['th', 'st', 'nd', 'rd'], v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  }
 
   function editList() {
     var ids = shelf.map(function (a) { return a.id; });
@@ -551,15 +537,15 @@
     box.innerHTML = '';
     var title = el('div', 'title', box);
     sym('apps', title);
-    title.appendChild(document.createTextNode(tr('Prateleira', 'Shelf', 'Estante')));
+    title.appendChild(document.createTextNode(tr('Shelf')));
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     list.style.height = Math.min(e.rows.length, 7) * 78 + 'px';
     for (var i = 0; i < e.rows.length; i++) {
       var a = e.rows[i], at = e.ids.indexOf(a.id), row = el('div', 'row', holder, a.title);
-      el('span', 'value', row, at >= 0 ? tr('Na prateleira · ', 'On · ', 'En el estante · ') + ordinal(at + 1) : tr('Fora', 'Off', 'Fuera'));
+      el('span', 'value', row, at >= 0 ? '#' + (at + 1) : tr('shelf|Off'));
       hover(row, Z.EDIT, i);
     }
-    el('div', 'hint', box, tr('OK põe ou tira · ← → mudam a ordem', 'OK adds or removes · ← → change the order', 'OK pone o quita · ← → cambian el orden'));
+    el('div', 'hint', box, trf('OK adds or removes (up to {n}). ← → change the order.', {n: MAX_SHELF}));
     updateFocus();
   }
 
@@ -579,7 +565,7 @@
     if (dx === 0) {
       if (at >= 0) ids.splice(at, 1);
       else if (ids.length < MAX_SHELF) ids.push(app.id);
-      else { toast(tr('A prateleira cabe até ' + MAX_SHELF + ' apps.', 'The shelf holds up to ' + MAX_SHELF + ' apps.', 'El estante tiene hasta ' + MAX_SHELF + ' apps.')); return; }
+      else { toast(trf('The shelf holds up to {n} apps.', {n: MAX_SHELF})); return; }
     } else {
       if (at < 0) return;
       var to = Math.max(0, Math.min(ids.length - 1, at + dx));
@@ -599,14 +585,14 @@
   function launcher(id, name) {
     return function () {
       TV.launch(id, null, function (ok) {
-        if (!ok) toast(tr('Não deu para abrir ', "Couldn't open ", 'No se pudo abrir ') + (name || id));
+        if (!ok) toast(trf("Couldn't open {app}.", {app: name || id}));
       });
     };
   }
 
   function tvSettings() {
     TV.settings(function (ok) {
-      if (!ok) toast(tr('Não deu para abrir os Ajustes da TV', "Couldn't open TV Settings", 'No se pudieron abrir los Ajustes del TV'));
+      if (!ok) toast(tr("Couldn't open TV Settings"));
     });
   }
 
@@ -619,7 +605,7 @@
     switch (st.zone) {
       case Z.TOP:
         if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('TV aberta', 'Live TV', 'TV en vivo'))(); }
+        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
         else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
@@ -782,12 +768,8 @@
 
   function tickSaverClock(clock) {
     var d = new Date();
-    clock.firstChild.textContent = Data.time(d.getTime()).replace(/ (AM|PM)$/, '');
-    try {
-      clock.children[1].textContent = d.toLocaleDateString(I18N.locale(), {weekday: 'long', day: 'numeric', month: 'long'});
-    } catch (e) {
-      clock.children[1].textContent = d.toDateString();
-    }
+    clock.firstChild.textContent = formatDate('format|h:mm', d.getTime());
+    clock.children[1].textContent = formatDate('format|EEEE, MMMM d', d.getTime());
   }
 
   function hideSaver() {
