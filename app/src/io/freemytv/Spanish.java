@@ -119,6 +119,7 @@ final class Spanish {
             case "OK picks, Back cancels.": return "OK elige, Atrás cancela.";
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Disney y Globoplay: el propio TV controla esos botones.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "YouTube, Prime Video y Google Play: el propio TV controla esos botones.";
+            case "The other buttons: the TV itself controls them.": return "Los demás botones: el propio TV los controla.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Estos son los botones del control de TCL: en este TV, los botones funcionan como siempre.";
             default:
                 if (english.startsWith("Free My TV is on: new home screen and screensaver, ")) {

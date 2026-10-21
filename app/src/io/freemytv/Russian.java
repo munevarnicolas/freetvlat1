@@ -126,6 +126,7 @@ final class Russian {
             case "OK picks, Back cancels.": return "OK — выбрать, «Назад» — отменить.";
             case "Disney and Globoplay: the TV itself controls those buttons.": return "Кнопками Disney и Globoplay управляет сам телевизор.";
             case "YouTube, Prime Video and Google Play: the TV itself controls those buttons.": return "Кнопками YouTube, Prime Video и Google Play управляет сам телевизор.";
+            case "The other buttons: the TV itself controls them.": return "Остальными кнопками управляет сам телевизор.";
             case "These are the TCL remote's buttons: on this TV, the buttons work as they always did.": return "Это кнопки пульта TCL: на этом телевизоре они работают как прежде.";
             case "Explore": return "Обзор";
             case "Movies": return "Фильмы";
