@@ -42,8 +42,8 @@ import java.util.concurrent.Executors;
 final class Recs {
     static final class Pick {
         int id;
-        String kind;            // "movie" or "tv"
-        String title, backdrop, meta = "", app, pkg;
+        String title, backdrop, poster, overview = "", meta = "", app, pkg;
+        double rating;
         boolean detailed;
     }
 
@@ -53,7 +53,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -172,21 +172,13 @@ final class Recs {
 
     /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
-        List<Pick> list = new ArrayList<>();
-        if (!hasKey(context)) return list;    // no TMDB key: no recommendations
-        Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
-        for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
-                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
-        }
-        if (list.isEmpty()) return list;
-        long hour = System.currentTimeMillis() / 3600_000L;
-        // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         List<Pick> out = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
-            Pick p = list.get((int) ((hour * 3 + i) % list.size()));
-            if (seen.add(franchise(p.title))) out.add(p);
+        if (!hasKey(context)) return out;
+
+        for (Pick p : picks) {
+            if (kind == null || kind.equals(p.kind)) {
+                out.add(p);
+            }
         }
         return out;
     }
@@ -371,56 +363,51 @@ final class Recs {
     // MARK: - TMDB
 
     private void fetchList(int p) throws Exception {
-        // The services the TV has, by their TMDB ids in your region.
-        Map<Integer, String[]> services = new HashMap<>();
-        JSONArray providers = get("/watch/providers/movie?language=" + lang() + "&watch_region=" + REGION).getJSONArray("results");
-        for (int i = 0; i < providers.length(); i++) {
-            JSONObject o = providers.getJSONObject(i);
-            String[] s = service(o.optString("provider_name"));
-            if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
+    List<Pick> hotMovies = new ArrayList<>();
+    List<Pick> hotShows = new ArrayList<>();
+
+    for (String kind : new String[] {"movie", "tv"}) {
+        JSONArray hot = get(
+                "/trending/" + kind + "/week?language=" + lang()
+        ).getJSONArray("results");
+
+        List<Pick> candidates = new ArrayList<>();
+
+        for (int i = 0; i < hot.length() && i < 20; i++) {
+            add(candidates, hot.getJSONObject(i), kind);
         }
-        if (services.isEmpty()) throw new IOException("none of the TV's streaming services are on TMDB");
-        StringBuilder ids = new StringBuilder();
-        for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
-        // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
-        //    on one of the TV's services: the details say where (and are then ready).
-        List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
-        for (String kind : new String[] {"movie", "tv"}) {
-            JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
-            List<Pick> candidates = new ArrayList<>();
-            for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
-            for (Pick pick : candidates) {
-                try {
-                    fetchDetails(pick);
-                } catch (Exception e) {
-                    continue;
-                }
-                if (pick.pkg != null) (kind.equals("movie") ? hotMovies : hotShows).add(pick);
+
+        for (Pick pick : candidates) {
+            try {
+                fetchDetails(pick);
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (kind.equals("movie")) {
+                hotMovies.add(pick);
+            } else {
+                hotShows.add(pick);
             }
         }
-        // 2. Recent releases on the TV's services: movies from the past year and shows with a new episode in the
-        //    past 3 months.
-        JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
-                + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
-        JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
-                + common).getJSONArray("results");
-        List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
-        for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
-        for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
-        // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
-        List<Pick> list = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
-        if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
-        picks = list;
-        period = p;
-        listAt = System.currentTimeMillis();
-        listLanguage = Ui.language;
     }
 
+    List<Pick> list = new ArrayList<>();
+    java.util.Set<String> seen = new java.util.HashSet<>();
+
+    alternate(list, seen, hotMovies, hotShows, 40);
+
+    if (list.isEmpty()) {
+        throw new IOException("TMDB returned no trending titles");
+    }
+
+    picks = list;
+    period = p;
+    listAt = System.currentTimeMillis();
+    listLanguage = Ui.language;
+}
+
+    
     /** Language of titles and genres; the services come from the region. */
     private static String lang() {
         if (Ui.ru) return "ru-RU";
@@ -459,6 +446,9 @@ final class Recs {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
         p.title = title(p, o);
+        p.overview = o.optString("overview", "");
+        p.poster = o.optString("poster_path", "");
+        p.rating = o.optDouble("vote_average", 0);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -686,20 +676,35 @@ final class Recs {
 
     // MARK: - List cache
 
-    private void save() {
-        try {
-            JSONArray a = new JSONArray();
-            for (Pick p : picks) {
-                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
-                        .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
-            }
-            cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
-                    .putString("language", listLanguage)
-                    .putLong("keyStamp", keyStamp).putInt("version", CACHE_VERSION).apply();
-        } catch (Exception ignored) {
+    
+private void save() {
+    try {
+        JSONArray a = new JSONArray();
+        for (Pick p : picks) {
+            a.put(new JSONObject()
+                    .put("id", p.id)
+                    .put("kind", p.kind)
+                    .put("title", p.title)
+                    .put("backdrop", p.backdrop)
+                    .put("poster", p.poster)
+                    .put("overview", p.overview)
+                    .put("rating", p.rating)
+                    .put("meta", p.meta)
+                    .put("app", p.app == null ? "" : p.app)
+                    .put("pkg", p.pkg == null ? "" : p.pkg)
+                    .put("detailed", p.detailed));
         }
+        cache.edit()
+                .putString("picks", a.toString())
+                .putInt("period", period)
+                .putLong("listAt", listAt)
+                .putString("language", listLanguage)
+                .putLong("keyStamp", keyStamp)
+                .putInt("version", CACHE_VERSION)
+                .apply();
+    } catch (Exception ignored) {
     }
+}
 
     private static List<Pick> parse(JSONArray a) {
         List<Pick> out = new ArrayList<>();
@@ -711,6 +716,9 @@ final class Recs {
             p.kind = o.optString("kind");
             p.title = o.optString("title");
             p.backdrop = o.optString("backdrop");
+            p.poster = o.optString("poster", "");
+            p.overview = o.optString("overview", "");
+            p.rating = o.optDouble("rating", 0);
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
