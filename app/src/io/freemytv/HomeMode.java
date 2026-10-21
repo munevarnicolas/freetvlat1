@@ -242,11 +242,16 @@ final class HomeMode {
             List<String> targets = targets(home, dream, setupHome);
             Set<String> disabled = new HashSet<>(stringList(state(c), "disabled"));
             Set<String> present = packages(adb, "");
+            Set<String> keptOff = new HashSet<>(stringList(state(c), "keptOff"));
+            for (String pkg : packages(adb, "-d")) if (targets(home, dream, true).contains(pkg) && !disabled.contains(pkg)) keptOff.add(pkg);
+            JSONObject before = state(c);
+            before.put("keptOff", new JSONArray(sorted(keptOff)));
+            save(c, before);
             int done = 0;
             for (String pkg : targets) {
                 done++;
                 busy(c, Ui.tr("Desligando apps (", "Turning off apps (") + done + "/" + targets.size() + ")…");
-                if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
+                if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg) || keptOff.contains(pkg)) continue;
                 String out = adb.shell("pm disable-user --user 0 " + pkg);
                 if (out.contains("disabled-user")) {
                     disabled.add(pkg);
@@ -289,6 +294,7 @@ final class HomeMode {
             for (String pkg : targets(home, originalDream(s), true)) {
                 if (!Arrays.asList(DEBLOAT).contains(pkg) && !Arrays.asList(ASSISTANT).contains(pkg)) toEnable.add(pkg);
             }
+            toEnable.removeAll(stringList(s, "keptOff"));
             Set<String> present = packages(adb, "");
             int done = 0;
             List<String> failed = new ArrayList<>();
@@ -310,7 +316,7 @@ final class HomeMode {
             }
             s = state(c);
             s.put("mode", ORIGINAL).put("since", System.currentTimeMillis()).put("homeReverted", false)
-                    .put("disabled", new JSONArray(failed));
+                    .put("disabled", new JSONArray(failed)).remove("keptOff");
             save(c, s);
             if (failed.isEmpty() && homeOk) {
                 notice(c, Ui.tr("Modo original: Início, tela de descanso e apps de fábrica de volta.",
@@ -350,13 +356,14 @@ final class HomeMode {
                 boolean ours = homeHolder(adb).contains(PKG);
                 if (!ours && (!FREE.equals(s.optString("mode")) || s.optBoolean("homeReverted"))) return;
                 String home = originalHome(s);
-                adb.shell("pm enable " + GOOGLE_SETUP);
+                List<String> keptOff = stringList(s, "keptOff");
+                if (!keptOff.contains(GOOGLE_SETUP)) adb.shell("pm enable " + GOOGLE_SETUP);
                 if (!restoreHome(adb, home)) {
                     AppLog.w("could not give the home screen back");
                     return;
                 }
                 String homePkg = packageOf(home), dreamPkg = packageOf(originalDream(s));
-                if (dreamPkg != null) adb.shell("pm enable " + dreamPkg);
+                if (dreamPkg != null && !keptOff.contains(dreamPkg)) adb.shell("pm enable " + dreamPkg);
                 JSONArray kept = new JSONArray();
                 for (String pkg : stringList(s, "disabled")) {
                     if (!pkg.equals(GOOGLE_SETUP) && !pkg.equals(homePkg) && !pkg.equals(dreamPkg)) kept.put(pkg);
@@ -405,6 +412,7 @@ final class HomeMode {
                     }
                 }
                 Set<String> disabled = new HashSet<>(stringList(s, "disabled"));
+                wanted.removeAll(stringList(s, "keptOff"));
                 for (String pkg : sorted(wanted)) {
                     if (PROTECTED.contains(pkg) || !present.contains(pkg) || owners.contains(pkg)) continue;
                     if (disabledNow.contains(pkg)) {
