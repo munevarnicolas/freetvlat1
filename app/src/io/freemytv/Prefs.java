@@ -25,7 +25,10 @@ final class Prefs {
     static final int KEY_NETFLIX = 4062, KEY_YOUTUBE = 190, KEY_PRIME = 4099, KEY_TCL_CHANNEL = 4020;
     /** Vestel's Netflix button: STEM_1, which the TV hands to its Netflix key receiver (dumpsys window policy). */
     static final int KEY_VESTEL_NETFLIX = KeyEvent.KEYCODE_STEM_1;
+    /** Sony: the "Google Play" button (Bravia remote); Android's code for it (seen in the key filter). */
+    static final int KEY_SONY_PLAY = 195;   // KEYCODE_BUTTON_8, scan code 587
     static final int[] KEYS = RemoteKeys.VESTEL ? new int[] {KEY_VESTEL_NETFLIX}
+            : RemoteKeys.SONY ? new int[] {KEY_SONY_PLAY}
             : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
 
     /** Bumped by every change: screens compare it to know when to redraw. */
@@ -128,6 +131,7 @@ final class Prefs {
             case KEY_YOUTUBE: return "com.google.android.youtube.tv";
             case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
             case KEY_TCL_CHANNEL: return "";
+            case KEY_SONY_PLAY: return "com.google.android.youtube.tv";
             default: return "";
         }
     }

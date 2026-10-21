@@ -119,6 +119,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
+| `hide_services` | Streaming apps to leave out of the picks (`netflix`, `prime`, `disney`, `hulu`, `paramount`, `peacock`, `globoplay`, `max`, `appletv`), comma separated; for apps the TV ships but you don't subscribe to | empty |
 
 Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
 
@@ -142,7 +143,7 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
   - on Philco TVs, AI PONT (promo channels and app downloads) and the manual;
   - on Multilaser TVs, Anoki's screen-content recognition (ACR), the store demo and the manual;
   - Google Assistant, only with `disable_assistant=true`.
-- On TCL TVs, the remote's Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons. Pick what each one opens in *Free My TV* → *Remote Buttons*; *Original* turns the service off. On Vestel-made TVs (F&U and other store brands) the same goes for the Netflix button.
+- On TCL TVs, the remote's Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons. Pick what each one opens in *Free My TV* → *Remote Buttons*; *Original* turns the service off. On Vestel-made TVs (F&U and other store brands) the same goes for the Netflix button, and on Sony BRAVIA TVs for the Google Play button (YouTube by default).
 - Picture, sound, inputs, remote pairing, Google services and the Play Store are on a protected list, checked before every change.
 - Apps that saved a Wi-Fi network are never turned off, since Android would erase the network. If the TV's first setup saved yours, the switch asks you to forget the network and connect again in Settings first (saved networks out of range don't show there; Claude Code can remove them).
 
@@ -190,7 +191,7 @@ It's your code, and Claude Code finds its way around it. Try:
 | [`DreamView.java`](app/src/io/freemytv/DreamView.java) | The screensaver |
 | [`SettingsActivity.java`](app/src/io/freemytv/SettingsActivity.java) | The settings screen (the app's icon) |
 | [`Prefs.java`](app/src/io/freemytv/Prefs.java) | Settings changed on the TV |
-| [`RemoteKeys.java`](app/src/io/freemytv/RemoteKeys.java) | The TCL remote's app buttons |
+| [`RemoteKeys.java`](app/src/io/freemytv/RemoteKeys.java) | The TCL, Vestel and Sony remotes' app buttons |
 | [`Watchdog.java`](app/src/io/freemytv/Watchdog.java) | The safety net |
 | [`web/home.js`](web/home.js) | The home screen on LG TVs |
 | [`web/tv.js`](web/tv.js) | The TV's apps and inputs, on LG and Samsung |

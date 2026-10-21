@@ -109,6 +109,8 @@ final class Spanish {
             case "not on the shelf": return "fuera del estante";
             case "Remote Buttons": return "Botones del control";
             case "Netflix button": return "Botón Netflix";
+            case "Google Play button": return "Botón Google Play";
+            case "The Google Play button on the Sony remote.": return "El botón Google Play del control Sony.";
             case "YouTube button": return "Botón YouTube";
             case "Prime Video button": return "Botón Prime Video";
             case "TCL Channel button": return "Botón TCL Channel";

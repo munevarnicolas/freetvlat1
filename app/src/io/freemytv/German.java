@@ -120,6 +120,8 @@ final class German {
             case "YouTube button": return "YouTube-Taste";
             case "Prime Video button": return "Prime-Video-Taste";
             case "TCL Channel button": return "TCL-Channel-Taste";
+            case "Google Play button": return "Google-Play-Taste";
+            case "The Google Play button on the Sony remote.": return "Die Google-Play-Taste der Sony-Fernbedienung.";
             case "Nothing": return "Nichts";
             case "Not installed": return "Nicht installiert";
             case ", selected": return ", ausgewählt";
