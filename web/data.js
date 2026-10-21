@@ -499,6 +499,7 @@ var Data = (function () {
 
     compact: function (v) {
       if (isNaN(v)) return '—';
+      if (v >= 1000000) return fmt(v / 1000000, 2) + 'M';
       if (v >= 10000) return fmt(v / 1000, 1) + 'k';
       if (v >= 1000) return fmt(v / 1000, 2) + 'k';
       if (v >= 100) return fmt(v, 0);
