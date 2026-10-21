@@ -34,7 +34,7 @@ import java.util.concurrent.Executors;
 /**
  * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, only from
  * the streaming apps installed on the TV (Netflix, Prime Video, Disney+, Max, Apple TV, Hulu, Paramount+, Peacock,
- * Globoplay...), via TMDB (an open movie database that knows what streams where in each country). Three per hour.
+ * Globoplay...), via TMDB (an open movie database that knows what streams where in each country). Six per hour.
  * "Watch" opens the service's app.
  *
  * Each person uses their own free TMDB key (config.properties "tmdb_key", built into the app). It never goes to the log.
@@ -43,17 +43,20 @@ final class Recs {
     static final class Pick {
         int id;
         String kind;            // "movie" or "tv"
-        String title, backdrop, meta = "", app, pkg;
+        String title, backdrop, poster, meta = "", app, pkg;   // poster: the portrait image of the narrow cards
         boolean detailed;
     }
 
     interface Listener { void onRecs(); }
 
+    /** Cards per tab and hour; the home screen shows 3 at a time and scrolls. */
+    static final int CARDS = 6;
+
     private static final String API = "https://api.themoviedb.org/3";
-    private static final String IMAGES = "https://image.tmdb.org/t/p/original";
+    private static final String IMAGES = "https://image.tmdb.org/t/p/original", POSTERS = "https://image.tmdb.org/t/p/w500";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -99,6 +102,7 @@ final class Recs {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
+    private final Map<String, Bitmap> posters = new LinkedHashMap<>();   // narrow-card portraits, same keys as images
     private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
     private final java.util.Set<String> pending = new java.util.HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
@@ -170,7 +174,7 @@ final class Recs {
         return now(null);
     }
 
-    /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
+    /** This hour's picks, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
@@ -181,11 +185,11 @@ final class Recs {
         }
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
+        // CARDS per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
-            Pick p = list.get((int) ((hour * 3 + i) % list.size()));
+        for (int i = 0; i < list.size() && out.size() < CARDS; i++) {
+            Pick p = list.get((int) ((hour * CARDS + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
         return out;
@@ -285,6 +289,7 @@ final class Recs {
         light = value;
         synchronized (images) {
             images.clear();
+            posters.clear();
         }
     }
 
@@ -451,6 +456,7 @@ final class Recs {
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
+        p.poster = o.isNull("poster_path") ? "" : o.optString("poster_path");
         list.add(p);
     }
 
@@ -459,6 +465,8 @@ final class Recs {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
         p.title = title(p, o);
+        String poster = o.optString("poster_path", "");
+        if (!poster.isEmpty() && !"null".equals(poster)) p.poster = poster;
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -604,11 +612,24 @@ final class Recs {
 
     private void download(Pick p) throws IOException {
         File f = imageFile(p);
-        if (f.exists()) return;
+        if (!f.exists()) fetchFile(f, (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection());
+        File poster = posterFile(p);
+        if (poster == null || poster.exists()) return;
+        try {   // the narrow cards: without a poster they crop the backdrop
+            fetchFile(poster, (HttpURLConnection) new URL(POSTERS + p.poster).openConnection());
+        } catch (IOException e) {
+            AppLog.w("poster: " + e.getMessage());
+        }
+    }
+
+    private File posterFile(Pick p) {
+        return p.poster == null || p.poster.isEmpty() ? null : new File(new File(context.getCacheDir(), "recs"), "p" + p.poster.replace("/", ""));
+    }
+
+    private void fetchFile(File f, HttpURLConnection c) throws IOException {
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
@@ -646,9 +667,12 @@ final class Recs {
             boolean forLight = light;
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
+            Bitmap poster = forLight ? loadPoster(p) : null;
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                if (poster != null) posters.put(p.backdrop, poster);
+                while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
+                posters.keySet().retainAll(images.keySet());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
@@ -658,12 +682,32 @@ final class Recs {
         }
     }
 
+    /** The poster at the narrow card's size, or null (not downloaded yet or unreadable). */
+    private Bitmap loadPoster(Pick p) {
+        File f = posterFile(p);
+        if (f == null || !f.exists()) return null;
+        Bitmap full = BitmapFactory.decodeFile(f.getPath());
+        if (full == null) {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+            return null;
+        }
+        return Backdrop.card(full, Backdrop.TALL_W, Backdrop.TALL_H);
+    }
+
+    Bitmap poster(Pick p) {
+        synchronized (images) {
+            return p == null || p.backdrop == null ? null : posters.get(p.backdrop);
+        }
+    }
+
     void trim() {
         // Explore's picks stay: the home screen opens on that tab, so its cards are never gray when you come back.
         java.util.Set<String> keep = new java.util.HashSet<>();
         for (Pick p : now(null)) if (p.backdrop != null) keep.add(p.backdrop);
         synchronized (images) {
             images.keySet().retainAll(keep);
+            posters.keySet().retainAll(keep);
         }
     }
 
@@ -676,9 +720,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= 60) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - 60; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }
@@ -690,7 +734,7 @@ final class Recs {
         try {
             JSONArray a = new JSONArray();
             for (Pick p : picks) {
-                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
+                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("poster", p.poster == null ? "" : p.poster)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                         .put("detailed", p.detailed));
             }
@@ -711,6 +755,7 @@ final class Recs {
             p.kind = o.optString("kind");
             p.title = o.optString("title");
             p.backdrop = o.optString("backdrop");
+            p.poster = o.optString("poster");
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
