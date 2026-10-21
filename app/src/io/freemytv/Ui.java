@@ -25,7 +25,7 @@ import java.util.function.Supplier;
 final class Ui {
     private Ui() {}
 
-    /** Android 9 to 11: older TVs and boxes, whose GPUs need the cheaper drawing paths (Shadows, rounded images). */
+    /** Android 8 to 11: older TVs and boxes, whose GPUs need the cheaper drawing paths (Shadows, rounded images). */
     static final boolean LEGACY = Build.VERSION.SDK_INT < 31;
     static final Locale RU = new Locale("ru", "RU");
     static final Locale PT = new Locale("pt", "BR");
@@ -61,7 +61,16 @@ final class Ui {
             } catch (RuntimeException ignored) {
             }
         }
-        return Typeface.create(Typeface.DEFAULT, weight, false);
+        // Typeface.create(family, weight, italic) is Android 9+; Android 8 only has regular and bold.
+        if (Build.VERSION.SDK_INT >= 28) return Weighted.create(weight);
+        return Typeface.create(Typeface.DEFAULT, weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
+    }
+
+    /** Only this class touches the Android 9 call, so Ui itself still verifies on Android 8 (like Recording.Node). */
+    private static final class Weighted {
+        static Typeface create(int weight) {
+            return Typeface.create(Typeface.DEFAULT, weight, false);
+        }
     }
 
     private static final String FONT = "fonts/InterVariable.ttf";
