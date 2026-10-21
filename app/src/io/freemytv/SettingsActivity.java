@@ -686,14 +686,9 @@ public class SettingsActivity extends Activity {
 
         /** Installed TV apps, by name, after "Nothing": what a remote button can open. */
         private void loadApps() {
-            PackageManager pm = getContext().getPackageManager();
             List<String[]> found = new ArrayList<>();
-            Set<String> seen = new HashSet<>();
-            Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
-            for (ResolveInfo ri : pm.queryIntentActivities(query, 0)) {
-                String pkg = ri.activityInfo.packageName;
-                if (pkg.equals(getContext().getPackageName()) || !seen.add(pkg)) continue;
-                found.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
+            for (String[] app : HomeApps.launchable(getContext())) {
+                if (!app[0].equals(getContext().getPackageName())) found.add(app);
             }
             Collections.sort(found, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
             appPkgs.clear();

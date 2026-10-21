@@ -18,6 +18,7 @@
         <package android:name="com.amazon.amazonvideo.livingroom" />
         <package android:name="com.disney.disneyplus" />
         <package android:name="com.wbd.stream" />
+        <package android:name="com.hbo.hbonow" />
         <package android:name="com.apple.atve.androidtv.appletv" />
         <package android:name="com.hulu.livingroomplus" />
         <package android:name="com.cbs.ott" />
@@ -31,6 +32,10 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />

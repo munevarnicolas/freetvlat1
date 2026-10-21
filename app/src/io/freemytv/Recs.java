@@ -70,6 +70,7 @@ final class Recs {
         {"peacock", "peacock", "com.peacocktv.peacockandroid"},
         {"globoplay", "globoplay", "com.globo.globotv"},
         {"max", "max", "com.wbd.stream"},
+        {"max", "max", "com.hbo.hbonow"},
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
     };
     private static final Map<String, String> SERVICE_NAME = new HashMap<>();
@@ -557,12 +558,15 @@ final class Recs {
         return best;
     }
 
-    private static String[] service(String name) {
+    private String[] service(String name) {
         String n = name.toLowerCase(Locale.ROOT);
+        String[] first = null;
         for (String[] s : SERVICES) {
-            if (s[0].equals("max") ? n.matches(".*\\bmax\\b.*") : n.contains(s[0])) return s;
+            if (!(s[0].equals("max") ? n.matches(".*\\bmax\\b.*") : n.contains(s[0]))) continue;
+            if (installed(s[2])) return s;
+            if (first == null) first = s;
         }
-        return null;
+        return first;
     }
 
     private boolean installed(String pkg) {
