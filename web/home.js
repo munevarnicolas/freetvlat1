@@ -289,19 +289,24 @@
 
   function renderShelf() {
     var n = shelf.length, gap = 48, pad = 40;
-    var tw = Math.min(270, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n));
+    // 16:9 tiles, as on Android: never taller than 126, and the glass keeps its bottom edge.
+    var tw = Math.min(126 * 16 / 9, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n)), th = tw * 9 / 16;
     var width = n * tw + Math.max(0, n - 1) * gap, left = (1920 - width) / 2;
     var platter = $('platter');
     platter.style.display = n ? '' : 'none';
     platter.style.left = (left - pad) + 'px';
     platter.style.width = (width + 2 * pad) + 'px';
+    platter.style.top = (814 + 126 - th) + 'px';
+    platter.style.height = (th + 2 * pad) + 'px';
     $('quotes').style.right = (1920 - left - width) + 'px';
     var tiles = $('tiles');
     tiles.innerHTML = '';
     for (var i = 0; i < n; i++) {
       var t = el('div', 'tile', tiles);
       t.style.left = (left + i * (tw + gap)) + 'px';
+      t.style.top = (854 + 126 - th) + 'px';
       t.style.width = tw + 'px';
+      t.style.height = th + 'px';
       face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
       hover(t, Z.SHELF, i);
     }
