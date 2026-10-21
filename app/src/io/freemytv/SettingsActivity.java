@@ -496,7 +496,7 @@ public class SettingsActivity extends Activity {
             for (int i = 0; notices != null && i < notices.length() && shown < 2; i++) {
                 JSONObject o = notices.optJSONObject(i);
                 if (o == null) continue;
-                String line = ago(o.optLong("at")) + " · " + (Ui.ru ? Russian.text(o.optString("text")) : o.optString("text"));
+                String line = ago(o.optLong("at")) + " · " + (Ui.ru ? Russian.text(o.optString("text")) : Ui.th ? Thai.text(o.optString("text")) : o.optString("text"));
                 c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
                 shown++;
             }
@@ -624,7 +624,7 @@ public class SettingsActivity extends Activity {
 
         // MARK: - Home Settings and Remote Buttons
 
-        private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
+        private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru", "th"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
         private static final int CITY_ROW = 4, COIN_ROWS = 6;
 
@@ -652,7 +652,8 @@ public class SettingsActivity extends Activity {
             String[] v = new String[labels.length];
             String lang = Prefs.language();
             v[0] = lang.equals("pt") ? "Português" : lang.equals("en") ? "English" : lang.equals("es") ? "Español"
-                    : lang.equals("de") ? "Deutsch" : lang.equals("ru") ? "Русский" : Ui.tr("Automático", "Automatic");
+                    : lang.equals("de") ? "Deutsch" : lang.equals("ru") ? "Русский" : lang.equals("th") ? "ไทย"
+                    : Ui.tr("Automático", "Automatic");
             String unit = Prefs.temperature();
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
             String theme = Prefs.theme();

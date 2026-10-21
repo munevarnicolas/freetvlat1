@@ -317,7 +317,7 @@ var Data = (function () {
       }
       if (p.kind === 'movie' && o.runtime > 0) {
         var h = Math.floor(o.runtime / 60), m = o.runtime % 60;
-        parts.push(I18N.lang === 'ru' ? (h ? h + ' ч ' + m + ' мин' : m + ' мин') : I18N.lang === 'en' ? (h ? h + 'h ' + m + 'm' : m + 'm') : (h ? h + ' h ' + m + ' min' : m + ' min'));
+        parts.push(I18N.lang === 'ru' ? (h ? h + ' ч ' + m + ' мин' : m + ' мин') : I18N.lang === 'th' ? (h ? h + ' ชม. ' + m + ' นาที' : m + ' นาที') : I18N.lang === 'en' ? (h ? h + 'h ' + m + 'm' : m + 'm') : (h ? h + ' h ' + m + ' min' : m + ' min'));
       } else if (p.kind === 'tv' && o.number_of_seasons > 0) {
         var n = o.number_of_seasons;
         parts.push(I18N.lang === 'ru' ? I18N.count(n, 'сезон', 'сезона', 'сезонов') : tr(n === 1 ? '1 temporada' : n + ' temporadas', n === 1 ? '1 season' : n + ' seasons', n === 1 ? '1 temporada' : n + ' temporadas'));
@@ -520,7 +520,7 @@ var Data = (function () {
       var d = new Date(at), h = d.getHours();
       if (I18N.lang === 'en') return (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
       if (I18N.lang === 'de') return (h < 10 ? '0' : '') + h + ' Uhr';
-      return (I18N.lang === 'es' || I18N.lang === 'ru') ? (h < 10 ? '0' : '') + h + ':00' : h + 'h';
+      return (I18N.lang === 'es' || I18N.lang === 'ru' || I18N.lang === 'th') ? (h < 10 ? '0' : '') + h + ':00' : h + 'h';
     },
     time: function (at) {
       var d = new Date(at), h = d.getHours(), m = d.getMinutes();

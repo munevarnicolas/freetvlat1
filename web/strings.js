@@ -1,5 +1,5 @@
 /*
- * On-screen text in Portuguese, English, Spanish, German and Russian (the same copy as the Android app).
+ * On-screen text in Portuguese, English, Spanish, German, Russian and Thai (the same copy as the Android app).
  * tr(pt, en, es): the text in the current language. The language follows the TV unless set in Home Settings.
  */
 var I18N = (function () {
@@ -129,6 +129,78 @@ var I18N = (function () {
     "": ""
   };
 
+  var thai = {
+    "Live TV": "ทีวีสด",
+    "All Apps": "แอปทั้งหมด",
+    "Settings": "ตั้งค่า",
+    "Home Settings": "ตั้งค่าหน้าหลัก",
+    "TV Settings": "ตั้งค่าทีวี",
+    "HDMI Inputs": "ช่อง HDMI",
+    "Inputs": "ช่องสัญญาณ",
+    "Shortcuts": "ทางลัด",
+    "Weather": "สภาพอากาศ",
+    "No weather data right now.": "ยังไม่มีข้อมูลสภาพอากาศ",
+    "Sunrise ": "พระอาทิตย์ขึ้น ",
+    "Sunset ": "พระอาทิตย์ตก ",
+    "Crypto": "คริปโต",
+    "24h change": "เปลี่ยนแปลง 24 ชม.",
+    "For You": "สำหรับคุณ",
+    "Couldn't open ": "เปิดไม่ได้ ",
+    "Dollar": "ดอลลาร์",
+    "Series": "ซีรีส์",
+    "now": "เมื่อสักครู่",
+    "Language": "ภาษา",
+    "Temperature": "อุณหภูมิ",
+    "Theme": "ธีม",
+    "Automatic": "อัตโนมัติ",
+    "Light": "สว่าง",
+    "Dark": "มืด",
+    "Weather widget": "วิดเจ็ตสภาพอากาศ",
+    "Quotes widget": "วิดเจ็ตราคา",
+    "On": "เปิด",
+    "Off": "ปิด",
+    "Shelf": "แอปโปรด",
+    "OK or the arrows change the value.": "กด OK หรือปุ่มลูกศรเพื่อเปลี่ยนค่า",
+    "Explore": "สำรวจ",
+    "Movies": "ภาพยนตร์",
+    "Shows": "ซีรีส์",
+    "Clear": "ท้องฟ้าแจ่มใส",
+    "Mostly Sunny": "แดดจัดเป็นส่วนใหญ่",
+    "Mostly Clear": "ท้องฟ้าโปร่งเป็นส่วนใหญ่",
+    "Partly Cloudy": "มีเมฆบางส่วน",
+    "Cloudy": "มีเมฆมาก",
+    "Fog": "หมอก",
+    "Drizzle": "ฝนปรอย ๆ",
+    "Heavy Rain": "ฝนตกหนัก",
+    "Snow": "หิมะ",
+    "Thunderstorms": "พายุฝนฟ้าคะนอง",
+    "Rain": "ฝนตก",
+    "On · ": "ในแอปโปรด · ",
+    "OK adds or removes · ← → change the order": "OK เพิ่มหรือเอาออก · ← → เปลี่ยนลำดับ",
+    "Couldn't open TV Settings": "เปิดการตั้งค่าทีวีไม่ได้",
+    "Action & Adventure": "แอ็กชันและผจญภัย",
+    "Sci-Fi & Fantasy": "ไซไฟและแฟนตาซี",
+    "War & Politics": "สงครามและการเมือง",
+    "Kids": "เด็ก",
+    "News": "ข่าว",
+    "Soap": "ละครโทรทัศน์",
+    "Talk": "ทอล์กโชว์",
+    "": ""
+  };
+
+  function thaiText(en) {
+    if (Object.prototype.hasOwnProperty.call(thai, en)) return thai[en];
+    var m = /^(\d+) (min|h) ago$/.exec(en);
+    if (m) return m[1] + (m[2] === 'min' ? ' นาทีที่แล้ว' : ' ชม.ที่แล้ว');
+    m = /^(\d+) seasons?$/.exec(en);
+    if (m) return m[1] + ' ซีซัน';
+    m = /^H:(\S+)(\s+)L:(\S+)$/.exec(en);
+    if (m) return 'สูง ' + m[1] + m[2] + 'ต่ำ ' + m[3];
+    m = /^The shelf holds up to (\d+) apps\.$/.exec(en);
+    if (m) return 'ชั้นวางใส่แอปได้สูงสุด ' + m[1] + ' แอป';
+    return en;
+  }
+
   function russianText(en) {
     if (Object.prototype.hasOwnProperty.call(russian, en)) return russian[en];
     var m = /^(\d+) (min|h) ago$/.exec(en);
@@ -141,7 +213,7 @@ var I18N = (function () {
   function detect(setting) {
     var v = (setting || 'auto').toLowerCase();
     if (v === 'auto') v = (navigator.language || 'en').toLowerCase();
-    return v.indexOf('ru') === 0 ? 'ru' : v.indexOf('de') === 0 ? 'de' : v.indexOf('pt') === 0 ? 'pt' : v.indexOf('es') === 0 ? 'es' : 'en';
+    return v.indexOf('ru') === 0 ? 'ru' : v.indexOf('de') === 0 ? 'de' : v.indexOf('pt') === 0 ? 'pt' : v.indexOf('es') === 0 ? 'es' : v.indexOf('th') === 0 ? 'th' : 'en';
   }
 
   return {
@@ -151,9 +223,9 @@ var I18N = (function () {
       return n + ' ' + (last >= 11 && last <= 14 ? many : last % 10 === 1 ? one : last % 10 >= 2 && last % 10 <= 4 ? few : many);
     },
     get lang() { return lang; },
-    tr: function (pt, en, es) { return lang === 'ru' ? russianText(en) : lang === 'de' ? germanText(en) : lang === 'es' ? (es || en) : lang === 'en' ? en : pt; },
+    tr: function (pt, en, es) { return lang === 'th' ? thaiText(en) : lang === 'ru' ? russianText(en) : lang === 'de' ? germanText(en) : lang === 'es' ? (es || en) : lang === 'en' ? en : pt; },
     /** BCP 47 tag for dates, numbers and TMDB. */
-    locale: function () { return lang === 'ru' ? 'ru-RU' : lang === 'de' ? 'de-DE' : lang === 'es' ? 'es-MX' : lang === 'en' ? 'en-US' : 'pt-BR'; }
+    locale: function () { return lang === 'th' ? 'th-TH' : lang === 'ru' ? 'ru-RU' : lang === 'de' ? 'de-DE' : lang === 'es' ? 'es-MX' : lang === 'en' ? 'en-US' : 'pt-BR'; }
   };
 })();
 
