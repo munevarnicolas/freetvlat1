@@ -20,7 +20,9 @@ before you do it, and let them do the taps on the TV.
    - macOS: `brew install --cask temurin android-commandlinetools android-platform-tools`, then
      `sdkmanager "build-tools;34.0.0" "platforms;android-34"`.
    - Linux: OpenJDK 17, Android's command-line tools and adb from the package manager, then the same `sdkmanager` line.
-   - Windows: WSL, then as on Linux.
+   - Windows: `powershell -ExecutionPolicy Bypass -File install-windows.ps1 -Ip <IP>` gets the tools (winget, the
+     SDK in `%LOCALAPPDATA%\Android\Sdk`), builds and installs, so steps 5 and 6 are done by it; or WSL, then as on Linux.
+     It does what `build.sh` does: keep the two in step.
 3. **Settings:** run `./build.sh` once; it creates `config.properties`. Fill in `latitude` and `longitude` (decimal
    degrees) and `city` for their city, `tmdb_region` (two-letter country), `show_crypto`, `currency` and `temperature` to match.
 4. **The TMDB key is theirs and secret.** Ask them to create one (free: themoviedb.org → Settings → API) and paste it
@@ -155,6 +157,9 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
+- The picks (`Recs`): `PER_HOUR` per tab, three cards on screen and the rest paged with ←/→ (`HomeView.cardPage`).
+  With Lampa installed and *Picks* = Lampa (`Prefs.recsSource`), titles on none of the TV's services go to Lampa,
+  opened on the title's card with a `themoviedb.org/<kind>/<id>` link (`Recs.pageUri`).
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and
   Vestel TVs, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is

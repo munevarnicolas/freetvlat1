@@ -24,6 +24,7 @@ import android.graphics.drawable.Drawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.Uri;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.View;
@@ -64,7 +65,8 @@ final class HomeApps {
         int kind;
         String key, label, pkg, inputId, number;
         String symbol;      // icon for the shortcuts and special cards
-        Bitmap tile;        // 16:9 card (apps and specials)
+        String uri;         // a pick's page in its app (Lampa opens a TMDB link on the title's card); null = just open the app
+        Bitmap tile;       // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
         Bitmap logoDark;    // version for a light background (YouTube's white icon), if any
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
@@ -223,11 +225,16 @@ final class HomeApps {
 
     /** A streaming service's app (the "Watch" button of the featured pick). */
     static Item app(String pkg, String label) {
+        return app(pkg, label, null);
+    }
+
+    static Item app(String pkg, String label, String uri) {
         Item it = new Item();
         it.kind = APP;
         it.key = pkg;
         it.pkg = pkg;
         it.label = label;
+        it.uri = uri;
         return it;
     }
 
@@ -363,6 +370,10 @@ final class HomeApps {
         Intent intent;
         switch (it.kind) {
             case APP:
+                if (it.uri != null) {
+                    intent = new Intent(Intent.ACTION_VIEW, Uri.parse(it.uri)).setPackage(it.pkg);
+                    break;
+                }
                 intent = launchIntent(a.getPackageManager(), it.pkg);
                 if (intent != null) intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 break;

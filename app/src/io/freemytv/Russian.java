@@ -108,6 +108,8 @@ final class Russian {
             case "Cancel": return "Отмена";
             case "No city with that name.": return "Город с таким названием не найден.";
             case "Couldn't search now: ": return "Не удалось выполнить поиск: ";
+            case "Picks": return "Подборки";
+            case "Streaming apps": return "Стриминг-сервисы";
             case "Quotes widget": return "Виджет котировок";
             case "On": return "Вкл.";
             case "Off": return "Выкл.";
@@ -187,9 +189,9 @@ final class Russian {
                     String n = english.substring(prefix.length(), english.length() - " apps turned off.".length());
                     return "Free My TV включён: новый главный экран и заставка; отключено приложений: " + n + ".";
                 }
-                if (english.startsWith("On · ") && english.endsWith(" titles from the TV's apps, 3 new ones every hour.")) {
-                    String n = english.substring(5, english.length() - " titles from the TV's apps, 3 new ones every hour.".length());
-                    return "Вкл. · Рекомендаций из приложений телевизора: " + n + "; 3 новых каждый час.";
+                if (english.startsWith("On · ") && english.endsWith(" titles from the TV's apps, 9 new ones every hour.")) {
+                    String n = english.substring(5, english.length() - " titles from the TV's apps, 9 new ones every hour.".length());
+                    return "Вкл. · Рекомендаций из приложений телевизора: " + n + "; 9 новых каждый час.";
                 }
                 if (english.endsWith(" min ago")) return english.substring(0, english.length() - 8) + " мин назад";
                 if (english.endsWith(" h ago")) return english.substring(0, english.length() - 6) + " ч назад";
