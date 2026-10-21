@@ -121,6 +121,11 @@ final class German {
             case "Prime Video button": return "Prime-Video-Taste";
             case "TCL Channel button": return "TCL-Channel-Taste";
             case "Nothing": return "Nichts";
+            case "BRAVIA CORE button": return "BRAVIA-CORE-Taste";
+            case "Disney+ button": return "Disney+-Taste";
+            case "Crunchyroll button": return "Crunchyroll-Taste";
+            case "Sony default": return "Sony-Standard";
+            case "Sony default: the button opens what it always did.": return "Sony-Standard: Die Taste öffnet, was sie immer geöffnet hat.";
             case "Not installed": return "Nicht installiert";
             case ", selected": return ", ausgewählt";
             case "OK or the arrows change the value.": return "OK oder die Pfeiltasten ändern den Wert.";
