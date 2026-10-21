@@ -92,6 +92,10 @@ final class Prefs {
         version++;
     }
 
+    /** The home screen's soft click when moving and opening. */
+    static boolean sounds() { return sp().getBoolean("sounds", true); }
+    static void setSounds(boolean on) { put("sounds", on); }
+
     // MARK: - Widgets and coins
 
     static boolean weather() { return sp().getBoolean("weather", true); }
