@@ -149,10 +149,20 @@ HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set
   Android 13+, with a fallback for 9 to 12). Keep it at 60 fps: no allocations in `onDraw`, no work on the UI thread.
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`
   process. `Watchdog` goes back to the stock home screen after 3 crashes in 5 minutes.
-- On-screen text: `Ui.tr("pt", "en")`, with the Spanish, German and Russian in `Spanish.java`, `German.java` and
-  `Russian.java` (keyed by the English); text built at runtime uses `Ui.tr(pt, en, es)`, and its German and Russian
-  come from those files too (patterns for the parts built at runtime). Add them all. Comments in English, short, only where the why
-  isn't obvious.
+- On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
+  HashMap lookup, English when a language lacks it). Text built at runtime is a pattern: `Ui.trf("{n} min ago", "n", 12)`,
+  never concatenated words. A key `"context|Text"` is the same English where a language may need another word
+  (`"unit|Automatic"`, `"format|h:mm"` holds a SimpleDateFormat pattern). A count with a word is
+  `Ui.plural("plural|one:{n} season|other:{n} seasons", n)`: each catalogue gives one form per CLDR plural category of
+  its language (`one`/`few`/`many`/`other` in Russian, Ukrainian, Polish; only `other` in Japanese, Chinese…), and
+  ICU's rules pick one. Portuguese, Spanish, German and Russian are hand translations: the reference, edited by hand,
+  never replaced with machine ones. Dates and numbers use `Ui.locale()`. Text
+  drawn every frame is cached and made again when `Ui.generation` changes. After changing text, run
+  `python3 tools/translate.py`: it rebuilds `en.json` from the code and lists what each language lacks; translate those
+  in every catalogue (or `--fill` with `ANTHROPIC_API_KEY`, which sends only the strings), and keep placeholders as they
+  are. Run `python3 tools/translate.py --check` to validate all catalogues without writing files.
+  No right-to-left languages yet (the layout isn't mirrored); CJK and Devanagari use the system font.
+  Comments in English, short, only where the why isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL and
