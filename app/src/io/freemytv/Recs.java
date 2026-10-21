@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
     }
 
@@ -107,7 +108,7 @@ final class Recs {
     private volatile boolean fetching;
     private volatile String error = "";
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
-    private volatile long failedAt, keyStamp;
+    private volatile long failedAt, keyStamp, linkRetryAt;
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
 
     private Recs(Context c) {
@@ -243,7 +244,7 @@ final class Recs {
         boolean stale = newKey || p != period || now - listAt > LIST_EVERY || now < listAt || picks.isEmpty()
                 || !listLanguage.equals(Ui.language);
         boolean missing = false;
-        for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick);
+        for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick) || needsLink(pick);
         if (!stale && !missing) return;
         keyStamp = stamp;
         fetching = true;
@@ -262,6 +263,7 @@ final class Recs {
                         failures++;
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
                     }
+                    findLink(pick);
                 }
                 save();
                 if (tried > 0 && failures == tried) throw new IOException(last);
@@ -575,6 +577,64 @@ final class Recs {
         return stamp;
     }
 
+    // MARK: - Watchmode (the title's own page in its app; the free plan's web addresses are what the apps open)
+
+    private static String linkKey(Pick p) {
+        return "wm:" + p.kind + p.id + p.app;
+    }
+
+    private boolean needsLink(Pick p) {
+        return !Config.WATCHMODE_KEY.trim().isEmpty() && p.pkg != null && p.link == null
+                && cache.getString(linkKey(p), null) == null && System.currentTimeMillis() >= linkRetryAt;
+    }
+
+    /** Sets p.link from what was looked up before, or looks it up (2 requests of the free plan's 2,500 a month). */
+    private void findLink(Pick p) {
+        if (Config.WATCHMODE_KEY.trim().isEmpty() || p.pkg == null || p.link != null) return;
+        String saved = cache.getString(linkKey(p), null);
+        if (saved != null) {
+            p.link = saved.isEmpty() ? null : saved;
+            return;
+        }
+        if (System.currentTimeMillis() < linkRetryAt) return;
+        try {
+            String link = "";
+            JSONArray found = new JSONObject(watchmode("/search/?search_field=tmdb_" + p.kind + "_id&search_value=" + p.id))
+                    .optJSONArray("title_results");
+            if (found != null && found.length() > 0) {
+                JSONArray sources = new JSONArray(watchmode("/title/" + found.getJSONObject(0).getInt("id") + "/sources/?regions=" + REGION));
+                String[] service = null;
+                for (String[] s : SERVICES) if (s[1].equals(p.app)) service = s;
+                for (int i = 0; service != null && i < sources.length() && link.isEmpty(); i++) {
+                    JSONObject s = sources.getJSONObject(i);
+                    String name = s.optString("name").toLowerCase(Locale.ROOT).replace(" ", "");
+                    String want = service[0].replace(" ", "");
+                    boolean same = want.equals("max") ? name.equals("max") : name.contains(want);
+                    if (same && s.optString("type").equals("sub")) link = s.optString("web_url");
+                }
+            }
+            cache.edit().putString(linkKey(p), link).apply();
+            p.link = link.isEmpty() ? null : link;
+        } catch (Exception e) {
+            linkRetryAt = System.currentTimeMillis() + 10 * 60_000L;   // quota or network: not again right away
+            AppLog.w("watchmode: " + e.getMessage());
+        }
+    }
+
+    private static String watchmode(String path) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL("https://api.watchmode.com/v1" + path + (path.contains("?") ? "&" : "?")
+                + "apiKey=" + URLEncoder.encode(Config.WATCHMODE_KEY.trim(), "UTF-8")).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(10000);
+        try {
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("Watchmode returned HTTP " + code);
+            return read(c.getInputStream());
+        } finally {
+            c.disconnect();
+        }
+    }
+
     private JSONObject get(String path) throws IOException, org.json.JSONException {
         String key = readKey();
         if (key == null) throw new IOException("no TMDB key");
@@ -690,7 +750,7 @@ final class Recs {
         try {
             JSONArray a = new JSONArray();
             for (Pick p : picks) {
-                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
+                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                         .put("detailed", p.detailed));
             }
@@ -711,6 +771,7 @@ final class Recs {
             p.kind = o.optString("kind");
             p.title = o.optString("title");
             p.backdrop = o.optString("backdrop");
+            p.link = o.optString("link").isEmpty() ? null : o.optString("link");
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");

@@ -47,6 +47,7 @@ final class Spanish {
             case "Error: ": return "Error: ";
             case "Fetching titles…": return "Buscando títulos…";
             case "This product uses the TMDB API but is not endorsed or certified by TMDB.": return "Este producto usa la API de TMDB, sin respaldo ni certificación de TMDB.";
+            case "Links to the titles by Watchmode.": return "Enlaces a los títulos por Watchmode.";
             case "COMPARISON": return "COMPARACIÓN";
             case "Home button": return "Botón Inicio";
             case "Free memory": return "Memoria libre";

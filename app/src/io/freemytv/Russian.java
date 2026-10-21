@@ -55,6 +55,7 @@ final class Russian {
             case "No TMDB key: see the README (config.properties).": return "Нет ключа TMDB: см. README (config.properties).";
             case "Error: ": return "Ошибка: ";
             case "Fetching titles…": return "Загрузка рекомендаций…";
+            case "Links to the titles by Watchmode.": return "Ссылки на тайтлы: Watchmode.";
             case "This product uses the TMDB API but is not endorsed or certified by TMDB.": return "Продукт использует API TMDB, но не одобрен и не сертифицирован TMDB.";
             case "COMPARISON": return "СРАВНЕНИЕ";
             case "Home button": return "Кнопка «Домой»";

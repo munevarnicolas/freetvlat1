@@ -63,6 +63,7 @@ final class HomeApps {
     static final class Item {
         int kind;
         String key, label, pkg, inputId, number;
+        String uri;         // opens this address in the app instead of the app's home (a title's page)
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
@@ -222,6 +223,12 @@ final class HomeApps {
     }
 
     /** A streaming service's app (the "Watch" button of the featured pick). */
+    static Item app(String pkg, String label, String uri) {
+        Item it = app(pkg, label);
+        it.uri = uri;
+        return it;
+    }
+
     static Item app(String pkg, String label) {
         Item it = new Item();
         it.kind = APP;
@@ -360,11 +367,15 @@ final class HomeApps {
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
-        Intent intent;
+        Intent intent, plain = null;   // plain: the app's own home, when it won't take the title's address
         switch (it.kind) {
             case APP:
                 intent = launchIntent(a.getPackageManager(), it.pkg);
-                if (intent != null) intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                plain = intent;
+                if (plain != null) plain.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                if (intent != null && it.uri != null) {
+                    intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
+                }
                 break;
             case LIVE_TV:
                 intent = liveTv(a);
@@ -388,7 +399,14 @@ final class HomeApps {
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());
-            return false;
+            if (plain == null || plain == intent) return false;
+            plain.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                a.startActivity(plain);
+                return true;
+            } catch (ActivityNotFoundException | SecurityException e2) {
+                return false;
+            }
         }
     }
 

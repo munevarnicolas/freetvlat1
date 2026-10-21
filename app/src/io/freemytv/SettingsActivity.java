@@ -444,8 +444,11 @@ public class SettingsActivity extends Activity {
             version.setTextAlign(Paint.Align.LEFT);
             c.drawText(Ui.tr("Usa a API do TMDB, sem endosso ou certificação do TMDB.",
                     "This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+            if (!Config.WATCHMODE_KEY.trim().isEmpty()) {
+                c.drawText(Ui.tr("Links dos títulos por Watchmode.", "Links to the titles by Watchmode."), x, y + 108 * k, version);
+            }
             version.setTextAlign(Paint.Align.CENTER);
-            return y + 78 * k;
+            return y + (Config.WATCHMODE_KEY.trim().isEmpty() ? 78 : 108) * k;
         }
 
         /** List row: no background; focused, white with a shadow (the Apple TV focus). Returns how focused it is. */
