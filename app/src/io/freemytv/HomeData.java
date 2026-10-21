@@ -305,17 +305,19 @@ final class HomeData {
         return Ui.locale();
     }
 
-    /** 580.4k · 21.0k · 1.04k · 5.61 (as short as possible; the dollar always with cents). */
+    /** 4.15M · 580.4k · 21.0k · 1.04k · 5.61 (as short as possible; the dollar always with cents). */
     static String price(double v) {
         if (Double.isNaN(v)) return "—";
+        if (v >= 1_000_000) return String.format(locale(), "%.2fM", v / 1_000_000);
         if (v >= 10_000) return String.format(locale(), "%.1fk", v / 1000);
         if (v >= 1000) return String.format(locale(), "%.2fk", v / 1000);
         return String.format(locale(), "%.2f", v);
     }
 
-    /** 416.3k · 12.2k · 1.04k · 531 · 5.05: abbreviated, for the price row on the home screen. */
+    /** 4.15M · 416.3k · 12.2k · 1.04k · 531 · 5.05: abbreviated, for the price row on the home screen. */
     static String compact(double v) {
         if (Double.isNaN(v)) return "—";
+        if (v >= 1_000_000) return String.format(locale(), "%.2fM", v / 1_000_000);   // Bitcoin in rubles…
         if (v >= 10_000) return String.format(locale(), "%.1fk", v / 1000);
         if (v >= 1000) return String.format(locale(), "%.2fk", v / 1000);
         if (v >= 100) return String.format(locale(), "%.0f", v);
