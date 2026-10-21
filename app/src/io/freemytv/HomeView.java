@@ -142,6 +142,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] topRects = new RectF[6];
     private final Spring[] cardFocus = new Spring[3];
     private final RectF[] cardRects = new RectF[3];
+    private final float[] cardLayout = new float[12];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
@@ -459,6 +460,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             pickIndex = 0;
             updatePicks();
         }
+        selectCard(0);
         if (tab != 0) selectTab(0);
         retarget(!animated);
         motionDirty = true;
@@ -2524,7 +2526,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (i >= cards.size()) return;
                 if (drawerOpen) closeDrawer();
-                cardIndex = i;
+                selectCard(i);
                 break;
             case Z_SHELF:
                 if (i >= shelf.size()) return;
@@ -2601,12 +2603,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             topRects[3 + i].set(right - b, cy - b / 2, right, cy + b / 2);
             right -= b + L_BUTTON_GAP * k;
         }
-        float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
-        float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
-        cardRects[0].set(left, top, left + wide, top + ch);
-        cardRects[1].set(cardRects[0].right + g, top, cardRects[0].right + g + tall, top + ch);
-        cardRects[2].set(cardRects[1].right + g, top, cardRects[1].right + g + tall, top + ch);
+        layoutCardRects();
         heroDirty = statusDirty = true;
+    }
+
+    private void layoutCardRects() {
+        RecommendationLayout.apply(cardLayout, MARGIN * k, L_CARDS_TOP * k, L_CARD_H * k,
+                (CONTENT_R - MARGIN) * k, L_CARD_GAP * k, L_TALL_W * k, cardIndex);
+        for (int i = 0; i < cardRects.length; i++) {
+            int at = i * 4;
+            cardRects[i].set(cardLayout[at], cardLayout[at + 1], cardLayout[at + 2], cardLayout[at + 3]);
+        }
+        heroDirty = true;
+    }
+
+    private void selectCard(int index) {
+        int next = Math.max(0, Math.min(index, Math.max(0, cards.size() - 1)));
+        if (next == cardIndex) return;
+        cardIndex = next;
+        layoutCardRects();
     }
 
     /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
@@ -2614,7 +2629,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
         if (!samePicks(list, cards)) {
             cards = list;
-            cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
+            selectCard(cardIndex);
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
                 retarget(false);
@@ -2707,8 +2722,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
         int top = -1;
-        for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
-        for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
+        for (int i = 0; i < cards.size(); i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
+        for (int i = 0; i < cards.size(); i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
@@ -2762,7 +2777,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         Backdrop b = p == null ? null : recs.backdrop(p);
-        Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
+        Bitmap img = b == null ? null : (i == cardIndex ? b.wide : b.tall);
         if (img != null) {
             roundImage(c, img, cell, r);
         } else {
@@ -2801,7 +2816,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p == null) return;
         fitPaint.set(lCardTitle);
         c.drawText(TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
-        if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
+        if (i == cardIndex && p.meta != null && !p.meta.isEmpty()) {
             fitPaint.set(lCardMeta);
             c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
         }
@@ -2849,14 +2864,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     topIndex = picksOn() ? tab : 3;
                 } else {
                     zone = Z_CARDS;
-                    cardIndex = nearest(cardRects, cards.size(), tileRects[shelfIndex].centerX());
+                    selectCard(nearest(cardRects, cards.size(), tileRects[shelfIndex].centerX()));
                 }
                 break;
             case Z_CARDS:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
                     if (next == cardIndex) return true;
-                    cardIndex = next;
+                    selectCard(next);
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
@@ -2876,7 +2891,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;
-                        cardIndex = nearest(cardRects, cards.size(), topRects[topIndex].centerX());
+                        selectCard(nearest(cardRects, cards.size(), topRects[topIndex].centerX()));
                     }
                 } else {
                     return true;

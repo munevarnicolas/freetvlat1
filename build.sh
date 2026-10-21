@@ -109,7 +109,8 @@ EOF
     "${JAVA_HOME:+$JAVA_HOME/bin/}java" out/FixAssets.java out/base.apk
     ;;
 esac
-"$JAVAC" -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$AJ:$BT/core-lambda-stubs.jar" -classpath "$AJ" \
+# Keep parameter names so Android Build Tools 34 can process classes compiled with Java 21+.
+"$JAVAC" -nowarn -Xlint:-options -parameters -source 8 -target 8 -bootclasspath "$AJ:$BT/core-lambda-stubs.jar" -classpath "$AJ" \
   -encoding UTF-8 -d out/classes $(find app/src out/gen -name '*.java')
 "$BT/d8" --release --min-api 28 --lib "$AJ" --output out $(find out/classes -name '*.class')
 (cd out && zip -qj base.apk classes.dex)

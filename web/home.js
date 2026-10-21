@@ -134,12 +134,13 @@
 
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0};
-  var cards = [];
+  var cards = [], cardViews = [], cardLayoutKey = '';
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT; }
 
   function updateFocus() {
     var i, list;
+    updateCardViews();
     list = $('tabs').children;
     for (i = 0; i < list.length; i++) {
       setClass(list[i], 'on', i === st.tab);
@@ -230,25 +231,52 @@
     var holder = $('cards');
     setClass(body, 'no-picks', !list.length);
     var same = list.length === cards.length;
-    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
-    if (same && holder.children.length === list.length) return;
+    for (var i = 0; same && i < list.length; i++) same = pickKey(list[i]) === pickKey(cards[i]);
     cards = list;
-    holder.innerHTML = '';
-    var rects = [[80, 1040], [1160, 320], [1520, 320]];
-    for (var c = 0; c < list.length; c++) {
-      var p = list[c], card = el('div', 'card', holder);
-      card.style.left = rects[c][0] + 'px';
-      card.style.width = rects[c][1] + 'px';
-      var img = el('div', 'img', card);
-      img.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
-      el('div', 'name', card, p.title);
-      if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
-      hover(card, Z.CARDS, c);
+    if (!same || holder.children.length !== list.length) {
+      holder.innerHTML = '';
+      cardViews = [];
+      cardLayoutKey = '';
+      for (var c = 0; c < list.length; c++) {
+        var card = el('div', 'card', holder);
+        var img = el('div', 'img', card);
+        var name = el('div', 'name', card);
+        var meta = el('div', 'meta', card);
+        cardViews.push({node: card, image: img, name: name, meta: meta, imageUrl: null});
+        hover(card, Z.CARDS, c);
+      }
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
+    updateCardViews();
     backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
     updateFocus();
+  }
+
+  function pickKey(p) { return p.kind + ':' + p.id; }
+
+  function updateCardViews() {
+    var rects = RecommendationLayout.forSelection(st.card);
+    var key = st.card + ':' + cards.length;
+    var layoutChanged = key !== cardLayoutKey || cardViews.length !== cards.length;
+    for (var i = 0; i < cardViews.length; i++) {
+      var view = cardViews[i], p = cards[i], expanded = i === st.card;
+      if (layoutChanged) {
+        view.node.style.left = rects[i].left + 'px';
+        view.node.style.width = rects[i].width + 'px';
+      }
+      setClass(view.node, 'expanded', expanded);
+      var imageUrl = Data.image(p.backdrop, expanded ? 'w1280' : 'w780');
+      if (view.imageUrl !== imageUrl) {
+        view.image.style.backgroundImage = imageUrl ? 'url(' + imageUrl + ')' : 'none';
+        view.imageUrl = imageUrl;
+      }
+      if (view.name.textContent !== p.title) view.name.textContent = p.title || '';
+      var meta = p.meta || '';
+      if (view.meta.textContent !== meta) view.meta.textContent = meta;
+      setClass(view.meta, 'visible', expanded && !!meta);
+    }
+    cardLayoutKey = key;
   }
 
   var bgUrl = null, bgFront = 'bgA';
@@ -851,7 +879,9 @@
     closeSheets();
     st.zone = Z.SHELF;
     st.shelf = 0;
+    st.card = 0;
     if (st.tab !== 0) { st.tab = 0; renderCards(); }
+    else updateCardViews();
     updateFocus();
   }
 
