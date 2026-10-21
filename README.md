@@ -126,6 +126,14 @@ Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`:
 
 Free, and it takes two minutes: create an account at [themoviedb.org](https://www.themoviedb.org/signup), then open [Settings → API](https://www.themoviedb.org/settings/api) and request a developer key. Paste the *API Read Access Token* (or the *API Key*) after `tmdb_key=`. It's your key: `config.properties` stays out of git.
 
+### Opening a title, not just its app (optional)
+
+With a free [Watchmode](https://api.watchmode.com/) key (`watchmode_key=` in `config.properties`), a pick opens its own page in the streaming app instead of the app's home. The free plan (2,500 credits a month) is enough: each title costs two requests the first time and is remembered after that. It works where the app takes the title's web address (tested: Prime Video and JioHotstar); where it doesn't, the pick just opens the app, as without a key.
+
+### Your Plex library (optional)
+
+Set `plex_url` (for example `https://192.168.1.20:32400`) and `plex_token` in `config.properties`, and the newest movies and shows of your Plex server (up to 8 of each kind) join the picks, with their own poster and backdrop, tagged "Plex". Selecting one opens the title's page in the Plex app. The token is on the address of any item's *Get Info → View XML* page in Plex's web app, after `X-Plex-Token=`; it gives access to your Plex account, so keep it private and never commit it. The TV talks to your server directly on your network, and accepts its self-made certificate (for that address only). Plex is also added to the shelf's list of apps. If the server can't be reached, the other picks load as usual.
+
 ## Going back
 
 On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
@@ -201,7 +209,7 @@ The website ([freemytv.io](https://freemytv.io)) is in [`docs/`](docs): plain HT
 
 ## Privacy
 
-No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with the coordinates you set, or your time zone's main city), and Binance only when `show_crypto=true`. Your settings stay on your computer and your TV.
+No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with the coordinates you set, or your time zone's main city), and Binance only when `show_crypto=true`, Watchmode only when you set a `watchmode_key`, and your Plex server only when you set a `plex_url`. Your settings stay on your computer and your TV.
 
 ## Credits
 
@@ -209,6 +217,7 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 - The LG version builds on what [@danielthejoker18](https://github.com/danielthejoker18) found in [FreeMyTvWebOS](https://github.com/danielthejoker18/FreeMyTvWebOS) (MIT): installing through Developer Mode and opening apps through the TV's service bus.
 - On Samsung TVs it installs with [TizenBrew Installer](https://github.com/reisxd/TizenBrewInstaller) by [@reisxd](https://github.com/reisxd).
 - This product uses the TMDB API but is not endorsed or certified by [TMDB](https://www.themoviedb.org/).
+- Links to the titles in the streaming apps by [Watchmode](https://api.watchmode.com/).
 - Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Prices from the [Binance](https://www.binance.com/) public API.
 - Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1). Coin logos: [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons) (CC0).
 - Not affiliated with Google, TCL, LG, Samsung or any streaming service. App names and logos belong to their owners.

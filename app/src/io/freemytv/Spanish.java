@@ -47,6 +47,7 @@ final class Spanish {
             case "Error: ": return "Error: ";
             case "Fetching titles…": return "Buscando títulos…";
             case "This product uses the TMDB API but is not endorsed or certified by TMDB.": return "Este producto usa la API de TMDB, sin respaldo ni certificación de TMDB.";
+            case "Links to the titles by Watchmode.": return "Enlaces a los títulos por Watchmode.";
             case "COMPARISON": return "COMPARACIÓN";
             case "Home button": return "Botón Inicio";
             case "Free memory": return "Memoria libre";
@@ -84,6 +85,7 @@ final class Spanish {
             case "Language": return "Idioma";
             case "Temperature": return "Temperatura";
             case "Theme": return "Tema";
+            case "Picks per tab": return "Recomendaciones por pestaña";
             case "Automatic": return "Automático";
             case "Light": return "Claro";
             case "Dark": return "Oscuro";
@@ -126,8 +128,8 @@ final class Spanish {
                             + english.substring("Free My TV is on: new home screen and screensaver, ".length()).replace(" apps turned off.", " apps desactivadas.");
                 }
                 if (english.startsWith("On · ")) {
-                    return "Activas · " + english.substring(5).replace(" titles from the TV's apps, 3 new ones every hour.",
-                            " títulos de las apps del TV, 3 nuevos cada hora.");
+                    return "Activas · " + english.substring(5).replace(" titles from the TV's apps, new ones every hour.",
+                            " títulos de las apps del TV, nuevos cada hora.");
                 }
                 if (english.endsWith(" min ago")) return "hace " + english.substring(0, english.length() - 4);
                 if (english.endsWith(" h ago")) return "hace " + english.substring(0, english.length() - 4);
