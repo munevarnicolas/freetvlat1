@@ -6,6 +6,16 @@ final class Spanish {
 
     static String text(String english) {
         switch (english) {
+            case "Recommendations": return "Recomendaciones";
+            case "From your apps": return "De tus apps";
+            case "Discover (TMDB)": return "Descubrir (TMDB)";
+
+            case "Allow TV listings access in the app's permissions.": return "Permite el acceso a la programación de TV en los permisos de la app.";
+            case "Recommendations from your shelf apps.": return "Recomendaciones de las apps de tu estante.";
+            case "Shelf apps have not published recommendations yet.": return "Las apps del estante aún no han publicado recomendaciones.";
+            case "Android TV channels and Watch Next": return "Canales de Android TV y Seguir viendo";
+            case "No recommendations in this tab yet.": return "No hay recomendaciones en esta pestaña.";
+
             case "Live TV": return "TV en vivo";
             case "All Apps": return "Todas las apps";
             case "Settings": return "Ajustes";

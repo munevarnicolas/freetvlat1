@@ -6,7 +6,7 @@
 
 **A fast, ad-free home screen for Google TV, LG and Samsung TVs.**
 
-Trending picks from your own apps, the weather at a glance, and a look that follows the sunset.<br>
+Picks from your own apps, the weather at a glance, and a look that follows the sunset.<br>
 Open source. Built with Claude Code. One button to undo.
 
 [**freemytv.io**](https://freemytv.io) · [Install](#install) · [LG TVs](#lg-tvs-webos) · [Samsung TVs](#samsung-tvs-tizen) · [Any TV](#any-tv) · [Make it yours](#make-it-yours)
@@ -19,7 +19,7 @@ Open source. Built with Claude Code. One button to undo.
 
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
 - **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
-- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
+- **Your choice of picks.** On Android TV, choose **From your apps**, **Discover (TMDB)** or **Off** in Home Settings. From your apps shows a scrolling row of recommendations published by your shelf apps, with three visible cards and a larger selected card. Both sources use the same expanding card row. Discover supplies three hourly picks from trending and recent movies and shows on installed streaming services. LG and Samsung keep their TMDB picks.
 - **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
 - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
 - **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
@@ -57,7 +57,7 @@ About ten minutes. You need a Google TV or Android TV (Android 9 or newer) and a
    ```bash
    ./build.sh
    ```
-   The first run creates `config.properties`. Set your city and your [TMDB key](#the-tmdb-key) there, then run it again.
+   The first run creates `config.properties`. Set your city there, then run it again. Android TV recommendations do not need a TMDB key.
 4. **Install:**
    ```bash
    adb connect 192.168.1.50:5555
@@ -110,7 +110,7 @@ The first values come from `config.properties`, created by the first build (Goog
 
 | Key | What it does | Default |
 |---|---|---|
-| `tmdb_key` | Your free TMDB key, for the picks | empty |
+| `tmdb_key` | Your free TMDB key, for Discover on Android and picks on LG/Samsung | empty |
 | `tmdb_region` | Your country (two letters): which titles are on which app | `US` |
 | `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
 | `city` | The name on the weather card | `Weather` |
@@ -123,6 +123,10 @@ The first values come from `config.properties`, created by the first build (Goog
 Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
 
 ### The TMDB key
+
+Android TV defaults to **From your apps**, with no TMDB key needed. Allow TV-listing access when prompted. Only shelf apps that publish Android TV preview or Watch Next entries can contribute; apps without entries show no picks. Cards open the publishing app's content link, and use its logo if artwork is unavailable. Explore, Movies, Shows and Continue Watching have their own tabs. Movie and show categories follow the publishing app’s media type; music and general video clips stay in Explore. Choose **Off** for the clock instead.
+
+To use **Discover (TMDB)**, add a key below, rebuild, then select it in Home Settings. It keeps the existing Explore, Movies and Shows tabs and three picks per hour, matched to installed streaming services in your country. Existing Android installations also start with From your apps until you select another source; their TMDB configuration is kept. LG and Samsung continue to use TMDB for their picks.
 
 Free, and it takes two minutes: create an account at [themoviedb.org](https://www.themoviedb.org/signup), then open [Settings → API](https://www.themoviedb.org/settings/api) and request a developer key. Paste the *API Read Access Token* (or the *API Key*) after `tmdb_key=`. It's your key: `config.properties` stays out of git.
 

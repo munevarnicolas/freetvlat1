@@ -135,7 +135,7 @@ public class SettingsActivity extends Activity {
         private String cityStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
         private JSONObject state = new JSONObject(), recs = new JSONObject();
-        private boolean hasKey;
+        private boolean canReadRecs;
         private int screen = MAIN, focus;
         private boolean running, okDown, backDown, wasBusy;
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
@@ -151,7 +151,7 @@ public class SettingsActivity extends Activity {
             @Override public void run() {
                 if (!running) return;
                 state = HomeMode.state(getContext());
-                hasKey = Recs.hasKey(getContext());
+                canReadRecs = Recs.canRead(getContext());
                 recs = Recs.status(getContext());
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
@@ -428,22 +428,32 @@ public class SettingsActivity extends Activity {
             drawNotices(c, y + 40 * k);
         }
 
-        /** Home screen picks: status, and the credit TMDB asks for. */
+        /** App-published recommendations and their access status. */
         private float drawRecs(Canvas c, float y) {
             float x = LIST_X * k + 30 * k;
             c.drawText(Ui.tr("RECOMENDAÇÕES", "RECOMMENDATIONS"), x, y, header);
             String line;
             String error = recs.optString("error");
             int count = recs.optInt("count");
-            if (!hasKey) line = Ui.tr("Sem chave do TMDB: veja o README (config.properties).", "No TMDB key: see the README (config.properties).");
+            if (!Recs.enabled()) line = Ui.tr("Desligado", "Off");
+            else if (!Recs.fromApps()) {
+                if (!Recs.hasKey(getContext())) line = Ui.tr("Sem chave do TMDB: veja o README (config.properties).", "No TMDB key: see the README (config.properties).");
+                else if (!error.isEmpty()) line = Ui.tr("Erro: ", "Error: ") + error + ".";
+                else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos nos apps da TV, 3 novos a cada hora.",
+                        "On · " + count + " titles from the TV's apps, 3 new ones every hour.");
+                else line = Ui.tr("Buscando os títulos…", "Fetching titles…");
+            } else if (!canReadRecs) line = Ui.tr("Permita o acesso aos programas de TV nas permissões do app.",
+                    "Allow TV listings access in the app's permissions.");
             else if (!error.isEmpty()) line = Ui.tr("Erro: ", "Error: ") + error + ".";
-            else if (count > 0) line = Ui.tr("Ligadas · " + count + " títulos nos apps da TV, 3 novos a cada hora.",
-                    "On · " + count + " titles from the TV's apps, 3 new ones every hour.");
-            else line = Ui.tr("Buscando os títulos…", "Fetching titles…");
+            else if (count > 0) line = Ui.tr("Recomendações dos apps da sua prateleira.", "Recommendations from your shelf apps.") + " (" + count + ")";
+            else line = Ui.tr("Os apps da prateleira ainda não publicaram recomendações.", "Shelf apps have not published recommendations yet.");
             c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
             version.setTextAlign(Paint.Align.LEFT);
-            c.drawText(Ui.tr("Usa a API do TMDB, sem endosso ou certificação do TMDB.",
-                    "This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+            String credit = !Recs.enabled() ? "" : Recs.fromApps()
+                    ? Ui.tr("Canais do Android TV e Continuar assistindo", "Android TV channels and Watch Next")
+                    : Ui.tr("Usa a API do TMDB, sem endosso ou certificação do TMDB.",
+                            "This product uses the TMDB API but is not endorsed or certified by TMDB.");
+            c.drawText(credit, x, y + 78 * k, version);
             version.setTextAlign(Paint.Align.CENTER);
             return y + 78 * k;
         }
@@ -625,8 +635,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
-        private static final int CITY_ROW = 4, COIN_ROWS = 6;
+        /** Home Settings, followed by one row per coin. */
+        private static final int CITY_ROW = 4, RECS_ROW = 6, COIN_ROWS = 7;
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -640,6 +650,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
+            l.add(Ui.tr("Recomendações", "Recommendations"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -660,6 +671,9 @@ public class SettingsActivity extends Activity {
             v[3] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[5] = onOff(Prefs.quotes());
+            String source = Prefs.recommendations();
+            v[RECS_ROW] = source.equals("off") ? Ui.tr("Desligado", "Off") : source.equals("apps")
+                    ? Ui.tr("Dos seus apps", "From your apps") : Ui.tr("Descobrir (TMDB)", "Discover (TMDB)");
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -734,6 +748,16 @@ public class SettingsActivity extends Activity {
                 case 3: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
                 case 5: Prefs.setQuotes(!Prefs.quotes()); break;
+                case RECS_ROW: {
+                    String[] sources = {"apps", "tmdb", "off"};
+                    int at = java.util.Arrays.asList(sources).indexOf(Prefs.recommendations());
+                    Prefs.setRecommendations(sources[(at + dir + sources.length) % sources.length]);
+                    if (Recs.fromApps() && !Recs.canRead(activity)) {
+                        activity.requestPermissions(new String[] {"android.permission.READ_TV_LISTINGS"}, 1);
+                    }
+                    Recs.get(getContext()).refreshIfStale();
+                    break;
+                }
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(focus - COIN_ROWS, !Prefs.coin(focus - COIN_ROWS));

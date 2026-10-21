@@ -81,6 +81,14 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** Android recommendations: app-published feeds by default, optional TMDB discovery, or the clock. */
+    static String recommendations() {
+        String v = sp().getString("recommendations", "apps");
+        return v.equals("tmdb") || v.equals("off") ? v : "apps";
+    }
+
+    static void setRecommendations(String v) { put("recommendations", v); }
+
     // MARK: - City
 
     static String city() { return sp().getString("city", Config.CITY).trim(); }

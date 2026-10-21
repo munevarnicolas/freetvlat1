@@ -13,6 +13,16 @@ final class Russian {
 
     static String text(String english) {
         switch (english) {
+            case "Recommendations": return "Рекомендации";
+            case "From your apps": return "Из ваших приложений";
+            case "Discover (TMDB)": return "Подборки (TMDB)";
+
+            case "Allow TV listings access in the app's permissions.": return "Разрешите доступ к телепрограмме в разрешениях приложения.";
+            case "Recommendations from your shelf apps.": return "Рекомендации приложений с вашей полки.";
+            case "Shelf apps have not published recommendations yet.": return "Приложения на полке ещё не опубликовали рекомендации.";
+            case "Android TV channels and Watch Next": return "Каналы Android TV и Продолжить просмотр";
+            case "No recommendations in this tab yet.": return "В этой вкладке пока нет рекомендаций.";
+
             case "Live TV": return "Телеканалы";
             case "All Apps": return "Приложения";
             case "Settings": return "Настройки";
