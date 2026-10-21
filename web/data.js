@@ -176,13 +176,22 @@ var Data = (function () {
     if (!coins.length || fetchingPrices || (now - pricesAt < 5 * 60000 && now >= pricesAt)) return;
     fetchingPrices = true;
     var symbols = coins.map(function (i) { return '%22' + COINS[i] + QUOTE + '%22'; }).join(',');
-    get('https://api.binance.com/api/v3/ticker/24hr?type=MINI&symbols=%5B' + symbols + '%5D', {}, function (err, body) {
-      fetchingPrices = false;
-      if (err || !parsePrices(body)) return;
-      pricesAt = Date.now();
-      store('prices', {quote: QUOTE, body: body, at: pricesAt});
-      changed();
-    });
+    var path = '/api/v3/ticker/24hr?type=MINI&symbols=%5B' + symbols + '%5D';
+    // Binance.com refuses the US (HTTP 451); Binance.US answers the same call in dollars.
+    var hosts = ['https://api.binance.com', 'https://api.binance.us'];
+    (function next(h) {
+      get(hosts[h] + path, {}, function (err, body) {
+        if (err || !parsePrices(body)) {
+          if (h + 1 < hosts.length) next(h + 1);
+          else fetchingPrices = false;
+          return;
+        }
+        fetchingPrices = false;
+        pricesAt = Date.now();
+        store('prices', {quote: QUOTE, body: body, at: pricesAt});
+        changed();
+      });
+    })(0);
   }
 
   // MARK: - Picks (TMDB)

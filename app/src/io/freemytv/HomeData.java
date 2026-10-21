@@ -81,11 +81,26 @@ final class HomeData {
         return i == 3 ? Ui.tr("Dólar", "Dollar") : COIN_NAMES[i];
     }
 
-    private static String pricesUrl() {
+    /** Binance.com refuses the US (HTTP 451); Binance.US answers the same call in dollars. */
+    private static final String[] PRICE_HOSTS = {"https://api.binance.com", "https://api.binance.us"};
+
+    private static String pricesPath() {
         StringBuilder symbols = new StringBuilder();
         int[] coins = active();
         for (int i = 0; i < coins.length; i++) symbols.append(i == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(QUOTE).append("%22");
-        return "https://api.binance.com/api/v3/ticker/24hr?type=MINI&symbols=%5B" + symbols + "%5D";
+        return "/api/v3/ticker/24hr?type=MINI&symbols=%5B" + symbols + "%5D";
+    }
+
+    private static String getPrices() throws IOException {
+        IOException failed = null;
+        for (String host : PRICE_HOSTS) {
+            try {
+                return get(host + pricesPath());
+            } catch (IOException e) {
+                failed = e;
+            }
+        }
+        throw failed;
     }
 
     static final class Weather {
@@ -148,7 +163,7 @@ final class HomeData {
             fetchingPrices = true;
             io.execute(() -> {
                 try {
-                    String body = get(pricesUrl());
+                    String body = getPrices();
                     parsePrices(body);
                     pricesAt = System.currentTimeMillis();
                     cache.edit().putString("prices", body).putLong("pricesAt", pricesAt).apply();
