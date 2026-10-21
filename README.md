@@ -116,7 +116,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `city` | The name on the weather card | `Weather` |
 | `language` | `auto` (follows the TV), `en`, `es`, `pt`, `ru` or `de` | `auto` |
 | `show_crypto` | Show Binance crypto prices on home and screensaver | `true` |
-| `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
+| `currency` | Crypto prices in `USD`, `EUR`, `BRL`, `COP`… (`COP` and other currencies without direct Binance pairs are converted from USDT) | `USD` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
 

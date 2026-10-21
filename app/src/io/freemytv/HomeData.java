@@ -33,8 +33,13 @@ final class HomeData {
     static final String[] COINS = {"BTC", "ETH", "SOL", "USDT"};
     static final String[] COIN_NAMES = {"Bitcoin", "Ethereum", "Solana", "Dollar"};
     private static final String CURRENCY = Config.CURRENCY.trim().toUpperCase(Locale.ROOT);
+    /** USD, EUR and BRL have direct Binance pairs; everything else (COP, MXN...) converts from USDT. */
+    private static final boolean DIRECT = CURRENCY.equals("USD") || CURRENCY.equals("EUR") || CURRENCY.equals("BRL");
+    private static final boolean NEEDS_FX = !DIRECT;
     /** Binance quotes dollars as USDT. */
-    private static final String QUOTE = CURRENCY.equals("USD") ? "USDT" : CURRENCY;
+    private static final String QUOTE = CURRENCY.equals("USD") || NEEDS_FX ? "USDT" : CURRENCY;
+    /** The pair that turns USDT into the local currency (USDTCOP for Colombia). */
+    private static final String FX_SYMBOL = "USDT" + CURRENCY;
     private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
             + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
 
@@ -62,7 +67,7 @@ final class HomeData {
         if (a != null && activeVersion == Prefs.version) return a;
         int n = 0;
         int[] tmp = new int[COINS.length];
-        for (int i = 0; i < COINS.length; i++) if (Prefs.coin(i) && (i < 3 || CURRENCY.equals("BRL"))) tmp[n++] = i;
+        for (int i = 0; i < COINS.length; i++) if (Prefs.coin(i) && (i < 3 || CURRENCY.equals("BRL") || NEEDS_FX)) tmp[n++] = i;
         a = java.util.Arrays.copyOf(tmp, n);
         activeCoins = a;
         activeVersion = Prefs.version;
@@ -81,10 +86,30 @@ final class HomeData {
         return i == 3 ? Ui.tr("Dólar", "Dollar") : COIN_NAMES[i];
     }
 
+    /** 0 = raining now, >0 = hours until the next rain, -1 = no rain in the hourly forecast. */
+    static int rainInHours(Weather w, long now) {
+        if (isRain(w.code)) return 0;
+        for (int i = 0; i < w.hourCode.size() && i < w.hours.size(); i++) {
+            if (!isRain(w.hourCode.get(i))) continue;
+            long at = w.hours.get(i);
+            return Math.max(1, Math.round((at - now) / 3_600_000f));
+        }
+        return -1;
+    }
+
+    /** WMO drizzle, rain, showers and thunderstorms (snow is not rain). */
+    private static boolean isRain(int code) {
+        return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
+    }
+
     private static String pricesUrl() {
         StringBuilder symbols = new StringBuilder();
         int[] coins = active();
-        for (int i = 0; i < coins.length; i++) symbols.append(i == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(QUOTE).append("%22");
+        for (int i = 0; i < coins.length; i++) {
+            if (NEEDS_FX && coins[i] == 3) continue;   // the FX pair below is the dollar's price
+            symbols.append(symbols.length() == 0 ? "" : ",").append("%22").append(COINS[coins[i]]).append(QUOTE).append("%22");
+        }
+        if (NEEDS_FX) symbols.append(symbols.length() == 0 ? "" : ",").append("%22").append(FX_SYMBOL).append("%22");
         return "https://api.binance.com/api/v3/ticker/24hr?type=MINI&symbols=%5B" + symbols + "%5D";
     }
 
@@ -123,7 +148,7 @@ final class HomeData {
     private HomeData(Context c) {
         cache = c.getSharedPreferences("homedata", Context.MODE_PRIVATE);
         try {
-            if (Prefs.quotes()) {
+            if (Prefs.quotes() && CURRENCY.equals(cache.getString("pricesCurrency", ""))) {
                 String p = cache.getString("prices", null);
                 if (p != null) parsePrices(p);
                 pricesAt = cache.getLong("pricesAt", 0);
@@ -151,7 +176,8 @@ final class HomeData {
                     String body = get(pricesUrl());
                     parsePrices(body);
                     pricesAt = System.currentTimeMillis();
-                    cache.edit().putString("prices", body).putLong("pricesAt", pricesAt).apply();
+                    cache.edit().putString("prices", body).putLong("pricesAt", pricesAt)
+                            .putString("pricesCurrency", CURRENCY).apply();
                     notifyListeners();
                 } catch (Exception e) {
                     pricesFailedAt = System.currentTimeMillis();
@@ -192,9 +218,15 @@ final class HomeData {
         JSONArray list = new JSONArray(body);
         String quote = QUOTE;
         int found = 0;
+        double fx = Double.NaN, fxOpen = Double.NaN;
         for (int i = 0; i < list.length(); i++) {
             JSONObject o = list.getJSONObject(i);
             String symbol = o.getString("symbol");
+            if (NEEDS_FX && symbol.equals(FX_SYMBOL)) {
+                fx = Double.parseDouble(o.optString("lastPrice", o.optString("price", "NaN")));
+                fxOpen = Double.parseDouble(o.optString("openPrice", "NaN"));
+                continue;
+            }
             for (int k = 0; k < COINS.length; k++) {
                 if (!symbol.equals(COINS[k] + quote)) continue;
                 found++;
@@ -204,7 +236,14 @@ final class HomeData {
                 changes[k] = open > 0 ? (last - open) / open * 100 : Double.NaN;
             }
         }
-        if (found == 0) pricesAt = 0;   // cached in another currency (config changed): fetch again
+        if (NEEDS_FX) {
+            if (Double.isNaN(fx) || fx <= 0) throw new Exception("no " + FX_SYMBOL + " rate");
+            for (int k = 0; k < 3; k++) if (!Double.isNaN(prices[k])) prices[k] *= fx;
+            prices[3] = fx;
+            changes[3] = fxOpen > 0 ? (fx - fxOpen) / fxOpen * 100 : Double.NaN;
+        } else if (found == 0) {
+            pricesAt = 0;   // cached in another currency (config changed): fetch again
+        }
     }
 
     private static Weather parseWeather(String body) throws Exception {

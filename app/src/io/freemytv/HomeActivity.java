@@ -15,6 +15,11 @@ import android.widget.TextView;
  * back to the TV's original one.
  */
 public class HomeActivity extends Activity {
+    /** Remote's Apps button (KEYCODE_ALL_APPS): open the All Apps sheet. */
+    static final String EXTRA_OPEN_APPS = "io.freemytv.extra.OPEN_APPS";
+    /** Remote's Menu button (KEYCODE_F9): context menu for the focused app. */
+    static final String EXTRA_APP_MENU = "io.freemytv.extra.APP_MENU";
+
     private HomeView home;
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
 
@@ -38,6 +43,8 @@ public class HomeActivity extends Activity {
         home = new HomeView(this);
         setContentView(home);
         getWindow().setBackgroundDrawable(null);
+        if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_OPEN_APPS, false)) home.requestApps();
+        if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_APP_MENU, false)) home.showAppMenu();
     }
 
     @Override protected void onResume() {
@@ -59,7 +66,10 @@ public class HomeActivity extends Activity {
     /** Home button pressed on the home screen: back to the entry state (focus on the first app, sheet closed). */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (home != null) home.reset(true);
+        if (home == null) return;
+        if (intent != null && intent.getBooleanExtra(EXTRA_OPEN_APPS, false)) home.requestApps();
+        else if (intent != null && intent.getBooleanExtra(EXTRA_APP_MENU, false)) home.showAppMenu();
+        else home.reset(true);
     }
 
     @Override protected void onDestroy() {
@@ -74,6 +84,14 @@ public class HomeActivity extends Activity {
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (RemoteKeys.onKey(this, event)) return true;
+        if (event.getKeyCode() == KeyEvent.KEYCODE_ALL_APPS) {   // without the key service
+            if (event.getAction() == KeyEvent.ACTION_DOWN && home != null) home.requestApps();
+            return true;
+        }
+        if (event.getKeyCode() == KeyEvent.KEYCODE_F9 || event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && home != null) home.showAppMenu();
+            return true;
+        }
         if (home != null && home.onKey(event)) return true;
         return super.dispatchKeyEvent(event);
     }

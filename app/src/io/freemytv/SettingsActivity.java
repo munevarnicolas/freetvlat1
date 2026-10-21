@@ -671,6 +671,8 @@ public class SettingsActivity extends Activity {
 
         private String[] keyLabels() {
             if (RemoteKeys.VESTEL) return new String[] {Ui.tr("Botão Netflix", "Netflix button")};
+            if (RemoteKeys.KALLEY) return new String[] {Ui.tr("Botão Netflix", "Netflix button"),
+                    Ui.tr("Botão YouTube", "YouTube button"), Ui.tr("Botão Prime Video", "Prime Video button")};
             return new String[] {Ui.tr("Botão Netflix", "Netflix button"), Ui.tr("Botão YouTube", "YouTube button"),
                     Ui.tr("Botão Prime Video", "Prime Video button"), Ui.tr("Botão TCL Channel", "TCL Channel button")};
         }

@@ -2,8 +2,19 @@ package io.freemytv;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
+import android.app.Dialog;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
+import android.provider.Settings;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.BlurMaskFilter;
@@ -16,6 +27,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.media.tv.TvInputManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -23,16 +35,24 @@ import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.Choreographer;
+import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeProvider;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -216,6 +236,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring scroll = new Spring(0.34f, 1f, 0);
     private final RectF focusedCell = new RectF();
     private boolean sheetOpen;
+    /** The Apps key asked for the sheet; resume() opens it instead of closing it. */
+    private boolean appsRequested;
     private int gridIndex;
 
     // Toasts
@@ -237,7 +259,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private boolean okDown, backDown;
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
-    private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
+    private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, rainPaint, bigTemp, hourPaint, hourTemp;
     private Paint pricePaint, changePaint, sheetTitle;
     private TextPaint titlePaint, gridLabel, toastPaint;
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -272,7 +294,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private long textPricesAt = -1, textMinute = -1;
     private int textPrefs = -1;
     private String textLanguage;
-    private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, staleText;
+    private String weatherTitle, nowTemp, highLow, rainText, sunriseText, sunsetText, staleText;
     private final String[] hourText = new String[6], hourTempText = new String[6];
     private final String[] priceText = new String[HomeData.COINS.length], changeText = new String[HomeData.COINS.length];
 
@@ -412,7 +434,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         reload();
         updatePalette();
         updatePicks();
-        if (sheetOpen) closeSheet();
+        if (appsRequested) {
+            if (!sheetOpen) openSheet();
+        } else if (sheetOpen) closeSheet();
         sheet.snap(sheet.target);
         motionDirty = true;
         invalidateAll();
@@ -440,6 +464,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         click.release();
     }
 
+    /** The Apps key: opens the All Apps sheet, or closes it when it is already open. */
+    void requestApps() {
+        // Checked before running: a second press arrives while the intent transition has paused the view.
+        if (sheetOpen) {
+            closeSheet();
+            return;
+        }
+        if (!running) {
+            appsRequested = true;   // launched from another app: open on resume
+            return;
+        }
+        reset(false);
+        appsRequested = true;
+        openSheet();
+    }
+
     /** Starting state (Home pressed while the home screen is showing): first app focused, drawer and sheet closed. */
     void reset(boolean animated) {
         wake();
@@ -447,6 +487,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         zone = Z_SHELF;
         shelfIndex = 0;
         sheetOpen = false;
+        appsRequested = false;
         drawerOpen = false;
         if (animated) {
             sheet.target = 0;
@@ -598,6 +639,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         cardTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         cardText = Ui.text(Ui.medium, 29 * k, 0xF2FFFFFF);
         cardDim = Ui.numbers(Ui.medium, 23 * k, 0xADFFFFFF);
+        rainPaint = Ui.numbers(Ui.medium, 23 * k, 0xFFFFFFFF);
+        rainPaint.setTextAlign(Paint.Align.RIGHT);
         cardDimRight = Ui.text(Ui.medium, 21 * k, 0x99FFFFFF);
         cardDimRight.setTextAlign(Paint.Align.RIGHT);
         bigTemp = Ui.numbers(Ui.light, 100 * k, 0xFFFFFFFF);
@@ -1556,6 +1599,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(Ui.tr("Sem dados do clima agora.", "No weather data right now."), x, r.top + 120 * k, cardDim);
             return;
         }
+        if (!rainText.isEmpty()) {
+            rainPaint.setColor(tone(0xFF1E88E5, 0xFF64B5F6));
+            c.drawText(rainText, r.right - 34 * k, r.top + 54 * k, rainPaint);
+        }
         String symbol = Symbols.weather(wx.code, wx.isDay);
         float sw = Symbols.width(getContext(), symbol, 52 * k);
         Symbols.draw(getContext(), c, symbol, x + sw / 2, r.top + 132 * k, 52 * k, drawerInk(0.95f));
@@ -1591,6 +1638,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     : Ui.en ? "H:" + HomeData.degrees(wx.max) + "   L:" + HomeData.degrees(wx.min)
                     : Ui.de ? "H:" + HomeData.degrees(wx.max) + "   T:" + HomeData.degrees(wx.min)
                     : "Máx. " + HomeData.degrees(wx.max) + "   Mín. " + HomeData.degrees(wx.min);
+            int rain = HomeData.rainInHours(wx, System.currentTimeMillis());
+            rainText = rain < 0 ? "" : rain == 0 ? Ui.tr("Chuva agora", "Rain now", "Lluvia ahora")
+                    : Ui.tr("Chuva em ", "Rain in ", "Lluvia en ") + rain + " h";
             for (int i = 0; i < wx.hours.size() && i < 6; i++) {
                 hourText[i] = HomeData.hour(wx.hours.get(i));
                 hourTempText[i] = HomeData.degrees(wx.hourTemp.get(i));
@@ -1745,6 +1795,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void closeSheet() {
         sheetOpen = false;
+        appsRequested = false;
         sheet.target = 0;
         retarget(false);
     }
@@ -1927,9 +1978,334 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 setShelf(s);
                 setStatusItems(st);
                 setDrawerItems(d);
-                if (!sheetOpen) setOthers(o);
+                setOthers(o);   // also when the Apps key opened the sheet before the list loaded
             });
         });
+    }
+
+    // MARK: - App context menu (remote's Menu key)
+
+    /** Menu key on the focused shelf or All Apps tile: open it, restart it, or show its system info. */
+    void showAppMenu() {
+        HomeApps.Item it = focusedApp();
+        if (it == null) {
+            showToast(Ui.tr("Selecione um app", "Select an app", "Selecciona una app"));
+            return;
+        }
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        labels.add(Ui.tr("Fechar app", "Close app", "Cerrar app"));
+        actions.add(() -> closeItem(it));
+
+        // The visible shelf, not the raw preference: disabled apps keep no place in the menu.
+        List<String> shelf = visibleShelfPackages();
+        boolean onShelf = shelf.contains(it.pkg);
+        if (onShelf) {
+            labels.add(Ui.tr("Remover do início", "Remove from Home", "Quitar del inicio"));
+            actions.add(() -> {
+                shelf.remove(it.pkg);
+                saveShelf(shelf, Ui.tr("Removido do início", "Removed from Home", "Quitado del inicio"));
+            });
+        } else if (shelf.size() < HomeApps.MAX_SHELF) {
+            labels.add(Ui.tr("Adicionar ao início", "Add to Home", "Añadir al inicio"));
+            actions.add(() -> {
+                shelf.add(it.pkg);
+                saveShelf(shelf, Ui.tr("Adicionado ao início", "Added to Home", "Añadido al inicio"));
+            });
+        }
+        if (onShelf || shelf.size() < HomeApps.MAX_SHELF) {
+            labels.add(Ui.tr("Mover", "Move", "Mover"));
+            actions.add(() -> {
+                if (onShelf) startReorderFor(it);
+                else moveItem(it);
+            });
+        }
+
+        labels.add(Ui.tr("Informação do app", "App info", "Información de la app"));
+        actions.add(() -> appInfo(it));
+
+        showListDialog(it.label, labels.toArray(new String[0]), (dialog, which) -> actions.get(which).run());
+    }
+
+    /** A translucent, focused list dialog: the home screen stays visible behind it. */
+    private void showListDialog(String title, String[] items, DialogInterface.OnClickListener onClick) {
+        Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = new LinearLayout(activity);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        panel.setPadding(pad, dp(14), pad, dp(14));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xE610141A);   // more opaque: the blurred home still reads through
+        bg.setCornerRadius(dp(22));
+        bg.setStroke(dp(1), 0x33FFFFFF);
+        panel.setBackground(bg);
+
+        TextView header = new TextView(activity);
+        header.setText(title);
+        header.setTextColor(Color.WHITE);
+        header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        header.setTypeface(Typeface.DEFAULT_BOLD);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(14), dp(6), dp(14), dp(14));
+        panel.addView(header);
+
+        TextView first = null;
+        for (int i = 0; i < items.length; i++) {
+            final int which = i;
+            TextView row = new TextView(activity);
+            row.setText(items[i]);
+            row.setTextColor(Color.WHITE);
+            row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(13), dp(14), dp(13));
+            row.setFocusable(true);
+            row.setBackground(rowBackground());
+            row.setOnClickListener(v -> {
+                dialog.dismiss();
+                onClick.onClick(dialog, which);
+            });
+            panel.addView(row);
+            if (first == null) first = row;
+        }
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setDimAmount(0.35f);
+            if (Build.VERSION.SDK_INT >= 31) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
+                window.setBackgroundBlurRadius(dp(48));
+            }
+            window.setGravity(Gravity.CENTER);
+            window.setLayout(dp(560), WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        dialog.show();
+        if (first != null) panel.post(first::requestFocus);
+    }
+
+    private StateListDrawable rowBackground() {
+        StateListDrawable states = new StateListDrawable();
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(0x40FFFFFF);
+        focused.setCornerRadius(dp(12));
+        states.addState(new int[]{android.R.attr.state_focused}, focused);
+        states.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
+        return states;
+    }
+
+    private int dp(float value) {
+        return Math.round(value * activity.getResources().getDisplayMetrics().density);
+    }
+
+    private List<String> visibleShelfPackages() {
+        List<String> out = new ArrayList<>();
+        for (HomeApps.Item item : shelf) if (item.kind == HomeApps.APP) out.add(item.pkg);
+        return out;
+    }
+
+    /** A shelf app: hand it to the interactive reorder (arrows move it, OK drops, Back cancels). */
+    private void startReorderFor(HomeApps.Item it) {
+        int index = -1;
+        for (int i = 0; i < shelf.size(); i++) {
+            if (shelf.get(i).pkg.equals(it.pkg)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            moveItem(it);
+            return;
+        }
+        if (sheetOpen) {
+            closeSheet();
+            appsRequested = false;
+        }
+        if (shelf.size() < 2) {
+            showToast(Ui.tr("Adicione outro app para reordenar", "Add another app to reorder", "Añade otra app para reordenar"));
+            return;
+        }
+        zone = Z_SHELF;
+        shelfIndex = index;
+        retarget(false);
+        startReorder();
+    }
+
+    /** Second step of Move for an app outside Home: pick the slot; OK pins it there. */
+    private void moveItem(HomeApps.Item it) {
+        List<String> shelf = visibleShelfPackages();
+        boolean onShelf = shelf.remove(it.pkg);
+        if (!onShelf && shelf.size() >= HomeApps.MAX_SHELF) {
+            showToast(Ui.tr("O início está cheio", "Home is full", "El inicio está lleno"));
+            return;
+        }
+        String[] slots = new String[shelf.size() + 1];
+        for (int i = 0; i <= shelf.size(); i++) {
+            String target = i < shelf.size()
+                    ? Ui.tr("Antes de ", "Before ", "Antes de ") + shelfLabel(shelf.get(i))
+                    : Ui.tr("No final", "At the end", "Al final");
+            slots[i] = (i + 1) + " · " + target;
+        }
+        showListDialog(Ui.tr("Mover ", "Move ", "Mover ") + it.label, slots, (dialog, which) -> {
+            List<String> next = new ArrayList<>(shelf);
+            next.add(which, it.pkg);
+            saveShelf(next, Ui.tr("Movido", "Moved", "Movido"));
+        });
+    }
+
+    private String shelfLabel(String pkg) {
+        for (HomeApps.Item item : shelf) if (item.pkg.equals(pkg)) return item.label;
+        return pkg;
+    }
+
+    private void saveShelf(List<String> shelf, String toast) {
+        Prefs.setShelf(shelf);
+        showToast(toast);
+        reload();
+    }
+
+    private void closeItem(HomeApps.Item it) {
+        showToast(Ui.tr("Fechando ", "Closing ", "Cerrando ") + it.label + "…");
+        runAdb("am force-stop " + it.pkg,
+                Ui.tr("App fechado", "App closed", "App cerrada"),
+                Ui.tr("Não deu para fechar ", "Couldn't close ", "No se pudo cerrar ") + it.label, false);
+    }
+
+    private void runAdb(String command, String success, String failure, boolean refresh) {
+        new Thread(() -> {
+            String error = null;
+            try (Adb adb = Adb.connect(activity, 8000, null)) {
+                String out = adb.shell(command);
+                if (out.contains("Failure") || out.contains("Error") || out.contains("Exception")) error = out.trim();
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+            final String err = error;
+            activity.runOnUiThread(() -> {
+                if (err != null) {
+                    showToast(failure + ": " + err);
+                    return;
+                }
+                showToast(success);
+                if (refresh) reload();
+            });
+        }, "app-action").start();
+    }
+
+    private HomeApps.Item focusedApp() {
+        HomeApps.Item it = null;
+        if (sheetOpen) {
+            if (gridIndex >= 0 && gridIndex < others.size()) it = others.get(gridIndex);
+        } else if (zone == Z_SHELF && shelfIndex >= 0 && shelfIndex < shelf.size()) {
+            it = shelf.get(shelfIndex);
+        }
+        return it != null && it.kind == HomeApps.APP ? it : null;
+    }
+
+    private void appInfo(HomeApps.Item it) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + it.pkg));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            activity.startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            showToast(Ui.tr("Sem informações do app", "No app info", "Sin información de la app"));
+        }
+    }
+
+    // MARK: - Pointer (air mouse / touchpad click)
+
+    private float touchX, touchY;
+    private boolean touchMoved;
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                touchX = e.getX();
+                touchY = e.getY();
+                touchMoved = false;
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (Math.abs(e.getX() - touchX) + Math.abs(e.getY() - touchY) > 24 * k) touchMoved = true;
+                return true;
+            case MotionEvent.ACTION_UP:
+                if (touchMoved) return true;
+                performClick();
+                float x = e.getX(), y = e.getY();
+                if (sheetOpen) {
+                    int i = sheetIndexAt(x, y);
+                    if (i >= 0) {
+                        gridIndex = i;
+                        retargetGrid(false);
+                        click.open();
+                        activate();
+                    } else {
+                        closeSheet();
+                        retarget(false);
+                    }
+                    return true;
+                }
+                if (drawerOpen) {
+                    for (int i = 0; i < drawerItems.size() && i < drawerRects.length; i++) {
+                        if (drawerRects[i].contains(x, y)) {
+                            drawerIndex = i;
+                            zone = Z_DRAWER;
+                            retarget(false);
+                            click.open();
+                            activate();
+                            return true;
+                        }
+                    }
+                }
+                for (int i = 0; i < shelf.size() && i < tileRects.length; i++) {
+                    if (tileRects[i].contains(x, y)) {
+                        shelfIndex = i;
+                        zone = Z_SHELF;
+                        retarget(false);
+                        click.open();
+                        activate();
+                        return true;
+                    }
+                }
+                for (int i = 0; i < statusItems.size() && i < statusRects.length; i++) {
+                    if (statusRects[i].contains(x, y)) {
+                        statusIndex = i;
+                        zone = Z_STATUS;
+                        retarget(false);
+                        click.open();
+                        activate();
+                        return true;
+                    }
+                }
+                for (int i = 0; i < Math.min(topRects.length, 3 + lightButtons.size()); i++) {
+                    if (topRects[i].contains(x, y)) {
+                        topIndex = i;
+                        zone = Z_TOP;
+                        retarget(false);
+                        click.open();
+                        activate();
+                        return true;
+                    }
+                }
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    /** Tile index under a point in the All Apps sheet, or -1. */
+    private int sheetIndexAt(float x, float y) {
+        float gridWidth = COLUMNS * GRID_W + (COLUMNS - 1) * GRID_GAP;
+        float left = (w - gridWidth) / 2f * k;
+        float top = GRID_TOP * k - scroll.value * GRID_ROW * k;
+        float cw = GRID_W * k, ch = GRID_H * k, gap = GRID_GAP * k, rh = GRID_ROW * k;
+        for (int i = 0; i < others.size(); i++) {
+            float x0 = left + (i % COLUMNS) * (cw + gap);
+            float y0 = top + (i / COLUMNS) * rh;
+            if (x >= x0 && x <= x0 + cw && y >= y0 && y <= y0 + ch) return i;
+        }
+        return -1;
     }
 
     // MARK: - Keys: only the arrows, OK and Back (system keys pass through to the system)
@@ -2186,6 +2562,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             retarget(false);
             return;
         }
+        if (sheetOpen) appsRequested = false;   // picking an app ends the Apps request
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
         if (!opened) showToast(Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label + ".");

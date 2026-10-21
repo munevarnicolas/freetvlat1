@@ -23,9 +23,12 @@ final class Prefs {
 
     /** Remote keys we handle, with the app each opens until the user picks another. Codes read from the TCL's log. */
     static final int KEY_NETFLIX = 4062, KEY_YOUTUBE = 190, KEY_PRIME = 4099, KEY_TCL_CHANNEL = 4020;
+    /** Kalley (MOKA/Realtek R10G): BUTTON_4, BUTTON_3 and BUTTON_8, from dumpsys window policy's mKeyMapping. */
+    static final int KEY_NETFLIX_KALLEY = KeyEvent.KEYCODE_BUTTON_4, KEY_PRIME_KALLEY = KeyEvent.KEYCODE_BUTTON_8;
     /** Vestel's Netflix button: STEM_1, which the TV hands to its Netflix key receiver (dumpsys window policy). */
     static final int KEY_VESTEL_NETFLIX = KeyEvent.KEYCODE_STEM_1;
     static final int[] KEYS = RemoteKeys.VESTEL ? new int[] {KEY_VESTEL_NETFLIX}
+            : RemoteKeys.KALLEY ? new int[] {KEY_NETFLIX_KALLEY, KEY_YOUTUBE, KEY_PRIME_KALLEY}
             : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
 
     /** Bumped by every change: screens compare it to know when to redraw. */
@@ -124,9 +127,9 @@ final class Prefs {
 
     private static String defaultApp(int keyCode) {
         switch (keyCode) {
-            case KEY_NETFLIX: case KEY_VESTEL_NETFLIX: return "com.netflix.ninja";
+            case KEY_NETFLIX: case KEY_VESTEL_NETFLIX: case KEY_NETFLIX_KALLEY: return "com.netflix.ninja";
             case KEY_YOUTUBE: return "com.google.android.youtube.tv";
-            case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
+            case KEY_PRIME: case KEY_PRIME_KALLEY: return "com.amazon.amazonvideo.livingroom";
             case KEY_TCL_CHANNEL: return "";
             default: return "";
         }
