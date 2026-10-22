@@ -1,0 +1,173 @@
+diff --git a/app/src/io/freemytv/DreamView.java b/app/src/io/freemytv/DreamView.java
+index ecba6bf..ac73369 100644
+--- a/app/src/io/freemytv/DreamView.java
++++ b/app/src/io/freemytv/DreamView.java
+@@ -45,7 +45,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
+     /** Photos 10% larger than the screen (the zoom goes up to 1.1 without upscaling). */
+     private static final int PW = 2112, PH = 1188;
+     private static final float MARGIN = 80, RIGHT = 1840, TITLE_W = 900, META_BASE = 1008;
+-    private static final float DATE_BASE = 92, CLOCK_TOP = 120, CLOCK_SIZE = 200, QUOTES_GAP = 52;
++    private static final float DATE_BASE = 92, CLOCK_TOP = 120, CLOCK_SIZE = 128, QUOTES_GAP = 52;
+     private static final double DRIFT_PERIOD_S = 600;
+ 
+     /** One photo on screen: the image, its motion (zooming in or out, toward a corner) and its caption. */
+@@ -224,7 +224,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
+         // Without photos (the clock over the aurora).
+         datePaint = Ui.text(Ui.semibold, 36 * k, 0xD9FFFFFF);
+         datePaint.setTextAlign(Paint.Align.CENTER);
+-        clockPaint = Ui.numbers(Ui.thin, 280 * k, 0xF2FFFFFF);
++        clockPaint = Ui.numbers(Ui.thin, 200 * k, 0xF2FFFFFF);
+         clockPaint.setTextAlign(Paint.Align.CENTER);
+         clockPaint.setLetterSpacing(-0.01f);
+         weatherPaint = Ui.numbers(Ui.medium, 30 * k, 0xC7FFFFFF);
+diff --git a/app/src/io/freemytv/German.java b/app/src/io/freemytv/German.java
+index 8018c2f..66310fb 100644
+--- a/app/src/io/freemytv/German.java
++++ b/app/src/io/freemytv/German.java
+@@ -11,6 +11,8 @@ final class German {
+             case "Settings": return "Einstellungen";
+             case "Home Settings": return "Start-Einstellungen";
+             case "TV Settings": return "TV-Einstellungen";
++            case "Android Settings": return "Android-Einstellungen";
++            case "FreeTV Settings": return "FreeTV-Einstellungen";
+             case "HDMI Inputs": return "HDMI-Eingänge";
+             case "Inputs": return "Eingänge";
+             case "Shortcuts": return "Verknüpfungen";
+diff --git a/app/src/io/freemytv/HomeData.java b/app/src/io/freemytv/HomeData.java
+index 8d298c4..57b907f 100644
+--- a/app/src/io/freemytv/HomeData.java
++++ b/app/src/io/freemytv/HomeData.java
+@@ -424,8 +424,7 @@ final class HomeData {
+     }
+ 
+     static String hour(long at) {
+-        return Ui.once("hour", at, () -> Ui.en ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
+-                : new SimpleDateFormat(Ui.es || Ui.ru ? "HH:mm" : Ui.de ? "HH 'Uhr'" : "HH'h'", Ui.locale()).format(new java.util.Date(at)));
++        return Ui.once("hour", at, () -> new SimpleDateFormat("h a", Ui.locale()).format(new java.util.Date(at)));
+     }
+ 
+     /** How long ago the data was fetched, if it's stale (no internet): "12 min ago". */
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 36cbc27..040399f 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -46,7 +46,7 @@ import java.util.function.Consumer;
+ /**
+  * The home screen, styled after the Apple TV app with the macOS 27 glass:
+  *  - at the top left, the "For You" title and the tabs (Explore, Movies, Shows); at the top right, icon-only glass
+- *    buttons (Live TV, HDMI Inputs, Settings), with the focused one's name below it, and the small crypto quotes
++ *    buttons (Android Settings, FreeTV Settings), with the focused one's name below it, and the small crypto quotes
+  *    (logo + price) at the right end of the tab row;
+  *  - three cards with the titles recommended for right now in the selected tab (Recs, from TMDB); the background is
+  *    the first card's photo, heavily blurred and almost white (Backdrop); without one, a light gradient;
+@@ -102,6 +102,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private static final String[] TABS_DE = {"Entdecken", "Filme", "Serien"};
+     private static final String[] TAB_KIND = {null, "movie", "tv"};
+     private static final int Z_TOP = 4, Z_CARDS = 5;
++    /** Icon buttons at the top right: Android settings and FreeTV settings. */
++    private static final int BUTTONS = 2;
+ 
+     private final Activity activity;
+     private final Scene scene = new Scene();
+@@ -134,12 +136,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private boolean nightPair;          // the glass holds both photos (day and night), blended by `night`
+     private Shader nightGradient;
+ 
+-    // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
++    // At the top: tabs (0 to 2) and icon-only buttons (3 and 4); the three cards
+     private int tab, topIndex, cardIndex;
+     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
+     private List<Recs.Pick> cards = new ArrayList<>();
+-    private final Spring[] topFocus = new Spring[6];
+-    private final RectF[] topRects = new RectF[6];
++    private final Spring[] topFocus = new Spring[3 + BUTTONS];
++    private final RectF[] topRects = new RectF[3 + BUTTONS];
+     private final Spring[] cardFocus = new Spring[3];
+     private final RectF[] cardRects = new RectF[3];
+     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
+@@ -373,7 +375,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         }
+         setContentDescription("Free My TV");
+         drawerLayer.setVisibility(INVISIBLE);
+-        for (int i = 0; i < 6; i++) {
++        for (int i = 0; i < 3 + BUTTONS; i++) {
+             topFocus[i] = new Spring(0.26f, 0.85f, 0);
+             topRects[i] = new RectF();
+         }
+@@ -467,9 +469,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     /** The three corner buttons, with their names in the current language. */
+     private void makeLightButtons() {
+         lightButtons.clear();
+-        lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
+-        lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
+-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
++        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
++                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
++        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings",
++                Ui.tr("Ajustes do FreeTV", "FreeTV Settings", "Ajustes de FreeTV"), "settings"));
+     }
+ 
+     private static String[] tabs() {
+@@ -1189,7 +1192,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         Paint text = clock ? lClockQuote : lQuote;
+         // The corner buttons' names appear in this row: the quotes fade out while one of them has focus.
+         float fade = 1;
+-        for (int i = 3; i < 6 && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
++        for (int i = 3; i < 3 + BUTTONS && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
+         if (fade <= 0.01f) return;
+         int textColor = text.getColor();
+         text.setColor(Ui.alpha(textColor, fade));
+@@ -2597,7 +2600,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             x = topRects[i].right + 4 * k;
+         }
+         float b = L_BUTTON * k, right = CONTENT_R * k, cy = L_BUTTON_CY * k;
+-        for (int i = 2; i >= 0; i--) {
++        for (int i = BUTTONS - 1; i >= 0; i--) {
+             topRects[3 + i].set(right - b, cy - b / 2, right, cy + b / 2);
+             right -= b + L_BUTTON_GAP * k;
+         }
+@@ -2813,7 +2816,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+      */
+     private void drawLightButtons(Canvas c) {
+         applyTone();
+-        for (int i = 0; i < 3; i++) {
++        for (int i = 0; i < BUTTONS; i++) {
+             RectF r = topRects[3 + i];
+             float f = Ui.clamp(topFocus[3 + i].value), s = 1 + 0.1f * f, rad = r.width() / 2 * s;
+             cell.set(r.centerX() - rad, r.centerY() - rad, r.centerX() + rad, r.centerY() + rad);
+@@ -2867,7 +2870,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 break;
+             case Z_TOP:
+                 if (dx != 0) {
+-                    int next = Math.max(picksOn() ? 0 : 3, Math.min(5, topIndex + dx));
++                    int next = Math.max(picksOn() ? 0 : 3, Math.min(2 + BUTTONS, topIndex + dx));
+                     if (next == topIndex) return true;
+                     topIndex = next;
+                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
+diff --git a/app/src/io/freemytv/Russian.java b/app/src/io/freemytv/Russian.java
+index 1040f98..45d8d26 100644
+--- a/app/src/io/freemytv/Russian.java
++++ b/app/src/io/freemytv/Russian.java
+@@ -18,6 +18,8 @@ final class Russian {
+             case "Settings": return "Настройки";
+             case "Home Settings": return "Главный экран";
+             case "TV Settings": return "Настройки ТВ";
++            case "Android Settings": return "Настройки Android";
++            case "FreeTV Settings": return "Настройки FreeTV";
+             case "HDMI Inputs": return "Входы HDMI";
+             case "Inputs": return "Входы";
+             case "Shortcuts": return "Ярлыки";
+diff --git a/app/src/io/freemytv/Ui.java b/app/src/io/freemytv/Ui.java
+index 6b91af0..9e85d79 100644
+--- a/app/src/io/freemytv/Ui.java
++++ b/app/src/io/freemytv/Ui.java
+@@ -170,8 +170,7 @@ final class Ui {
+ 
+     /** "5:21" (sunrise and sunset; in English, "5:21 AM"). */
+     static String time(long at) {
+-        return once("time", at, () -> en ? new SimpleDateFormat("h:mm a", Locale.US).format(new Date(at))
+-                : new SimpleDateFormat("H:mm", locale()).format(new Date(at)));
++        return once("time", at, () -> new SimpleDateFormat("h:mm a", locale()).format(new Date(at)));
+     }
+ 
+     private static final HashMap<String, String> FORMATTED = new HashMap<>();

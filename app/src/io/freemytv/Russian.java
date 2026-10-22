@@ -18,6 +18,8 @@ final class Russian {
             case "Settings": return "Настройки";
             case "Home Settings": return "Главный экран";
             case "TV Settings": return "Настройки ТВ";
+            case "Android Settings": return "Настройки Android";
+            case "FreeTV Settings": return "Настройки FreeTV";
             case "HDMI Inputs": return "Входы HDMI";
             case "Inputs": return "Входы";
             case "Shortcuts": return "Ярлыки";
