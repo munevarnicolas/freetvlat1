@@ -61,9 +61,9 @@ final class Backdrop {
             // Light design: everything comes from the photo without scrims.
             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
             int[] frost = reduce(out, FW, FH, 3, 3);
-            int[] light = whiten(frost.clone(), 0.82f);
+            int[] light = lighten(frost.clone(), 0.40f, 0.32f, 1.5f);
             int[] glass = reduce(out, GW, GH, 2, 2);
-            int[] lightGlass = whiten(glass.clone(), 0.74f);
+            int[] lightGlass = lighten(glass.clone(), 0.50f, 0.28f, 1.3f);
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
             out.recycle();
@@ -178,13 +178,25 @@ final class Backdrop {
         return px;
     }
 
-    private static int[] whiten(int[] px, float amount) {
+    /**
+     * Day look, like tvOS 26: lighter than the photo but keeping its color and its gradient. The photo's colors are
+     * saturated a little, then mixed with white: dark areas get more white (so the dark text reads), bright ones keep
+     * more of their color. A flat 82 % of white (the old look) erased the photo's gradient.
+     */
+    private static int[] lighten(int[] px, float base, float range, float saturation) {
         for (int i = 0; i < px.length; i++) {
             int p = px[i];
-            int r = Math.round(((p >> 16) & 255) * (1 - amount) + 255 * amount);
-            int g = Math.round(((p >> 8) & 255) * (1 - amount) + 255 * amount);
-            int b = Math.round((p & 255) * (1 - amount) + 255 * amount);
-            px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            float r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            float luma = (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255f;
+            float gray = luma * 255f;
+            r = gray + (r - gray) * saturation;
+            g = gray + (g - gray) * saturation;
+            b = gray + (b - gray) * saturation;
+            float white = base + range * (1 - luma);
+            int rr = Math.round(Math.max(0, Math.min(255, r)) * (1 - white) + 255 * white);
+            int gg = Math.round(Math.max(0, Math.min(255, g)) * (1 - white) + 255 * white);
+            int bb = Math.round(Math.max(0, Math.min(255, b)) * (1 - white) + 255 * white);
+            px[i] = 0xFF000000 | (rr << 16) | (gg << 8) | bb;
         }
         return px;
     }

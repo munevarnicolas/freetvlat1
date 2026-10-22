@@ -36,7 +36,7 @@ import java.util.concurrent.Executors;
 
 /**
  * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, via TMDB
- * (an open movie database that knows what streams where in each country). Three per hour and per tab.
+ * (an open movie database that knows what streams where in each country). At least 25 movies and 25 shows, renewed every 12 hours.
  *
  * <p>Which titles qualify: the ones TMDB lists on a known streaming service (Netflix, Prime Video, Disney+, Max, Apple
  * TV...) in your country ({@code tmdb_region}). The service does NOT have to be installed on the TV:
@@ -65,18 +65,16 @@ final class Recs {
 
     private static final String API = "https://api.themoviedb.org/3";
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
-    private static final long LIST_EVERY = 6 * 3600_000L;
+    private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 5;
+    private static final int CACHE_VERSION = 6;
 
-    /** Titles kept in the list, and how many of them come from what's trending (the rest are recent releases). */
-    private static final int LIST_SIZE = 24, TRENDING_PER_KIND = 8, TRENDING_CANDIDATES = 20;
-    private static final int PICKS_PER_HOUR = 3;
-    private static final int MAX_IMAGES_ON_DISK = 24;
-    /** Fills what trending doesn't cover with recent releases (movies of the past year, shows with a new episode). */
-    private static final boolean INCLUDE_NEW_RELEASES = true;
-
+    /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
+    private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
+    private static final int TRENDING_PER_KIND = 10, TRENDING_CANDIDATES = 20;
+        private static final int MAX_IMAGES_ON_DISK = 48;
+    
     private static final int MORNING = 0, AFTERNOON = 1, NIGHT = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
@@ -124,7 +122,8 @@ final class Recs {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
-    private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
+    private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);   // built and ready to draw (least recently drawn goes first)
+    private final Set<String> inFlight = new HashSet<>();   // picks whose details and image are being fetched
     private final Set<String> pending = new HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
@@ -197,32 +196,44 @@ final class Recs {
 
     // MARK: - What the screens ask for
 
-    /** This hour's picks (the first is the featured one; the arrows switch to the others). */
-    List<Pick> now() {
-        return now(null);
+    /**
+     * The carousel of a tab: movies only ("movie"), shows only ("tv") or both alternating (null, Explore). At least 25
+     * per kind, refreshed every 12 hours. A title whose details are already known must be on a known service in your
+     * region (it doesn't need that service to be installed).
+     */
+    List<Pick> carousel(String kind) {
+        List<Pick> out = new ArrayList<>();
+        if (!hasKey(context)) return out;     // no TMDB key: no recommendations
+        for (Pick p : picks) {
+            boolean sameKind = kind == null || kind.equals(p.kind);
+            if (sameKind && (!p.detailed || p.app != null)) out.add(p);
+            if (kind == null && out.size() >= EXPLORE_MAX) break;
+        }
+        return out;
     }
 
     /**
-     * This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). Never two from the
-     * same franchise ("Law & Order" and "Law & Order: Special…"). A title whose details are already known must be on a
-     * known service in your region; it doesn't need that service to be installed.
+     * Details and image for these picks (what the carousel shows and what is next to it), one at a time in the
+     * background; the listeners hear when they are ready.
      */
-    List<Pick> now(String kind) {
-        List<Pick> pool = new ArrayList<>();
-        if (!hasKey(context)) return pool;     // no TMDB key: no recommendations
-        for (Pick p : picks) {
-            boolean sameKind = kind == null || kind.equals(p.kind);
-            if (sameKind && (!p.detailed || p.app != null)) pool.add(p);
+    void ensure(List<Pick> window) {
+        if (!hasKey(context) || inBackoff(System.currentTimeMillis())) return;
+        final List<Pick> todo = new ArrayList<>();
+        synchronized (inFlight) {
+            for (Pick p : window) if (needsWork(p) && inFlight.add(key(p))) todo.add(p);
         }
-        if (pool.isEmpty()) return pool;
-        long hour = System.currentTimeMillis() / 3600_000L;
-        List<Pick> out = new ArrayList<>();
-        Set<String> franchises = new HashSet<>();
-        for (int i = 0; i < pool.size() && out.size() < PICKS_PER_HOUR; i++) {
-            Pick p = pool.get((int) ((hour * PICKS_PER_HOUR + i) % pool.size()));
-            if (franchises.add(franchise(p.title))) out.add(p);
-        }
-        return out;
+        if (todo.isEmpty()) return;
+        io.execute(() -> {
+            try {
+                completePicks(todo);
+                save();
+            } finally {
+                synchronized (inFlight) {
+                    for (Pick p : todo) inFlight.remove(key(p));
+                }
+                notifyListeners();
+            }
+        });
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -240,12 +251,13 @@ final class Recs {
         return name == null ? "" : name;
     }
 
-    /** This hour's picks for the three tabs (Explore, Movies, Shows), without repeats. */
+    /** The first cards of the three tabs (Explore, Movies, Shows), without repeats: what the home screen opens with. */
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
+            List<Pick> list = carousel(kind);
+            for (int i = 0; i < Math.min(4, list.size()); i++) if (seen.add(key(list.get(i)))) out.add(list.get(i));
         }
         return out;
     }
@@ -308,7 +320,8 @@ final class Recs {
     /** Frees memory: only Explore's picks stay (the home screen opens on that tab, so its cards are never gray). */
     void trim() {
         Set<String> keep = new HashSet<>();
-        for (Pick p : now(null)) if (p.backdrop != null) keep.add(p.backdrop);
+        List<Pick> first = carousel(null);
+        for (int i = 0; i < Math.min(4, first.size()); i++) if (first.get(i).backdrop != null) keep.add(first.get(i).backdrop);
         synchronized (images) {
             images.keySet().retainAll(keep);
         }
@@ -334,7 +347,7 @@ final class Recs {
         return failedAt != 0 && sinceFail >= 0 && sinceFail < RETRY_AFTER_FAILURE;
     }
 
-    /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
+    /** With a key: fetches the lists if they are 12 hours old (or the source changed); then the details. */
     void refreshIfStale() {
         if (!hasKey(context) || fetching) return;
         long now = System.currentTimeMillis();
@@ -342,7 +355,7 @@ final class Recs {
         boolean newSource = stamp != keyStamp;
         if (!newSource && inBackoff(now)) return;
         final int currentPeriod = period(now);
-        final boolean stale = newSource || currentPeriod != period || now - listAt > LIST_EVERY || now < listAt
+        final boolean stale = newSource || now - listAt > LIST_EVERY || now < listAt
                 || picks.isEmpty() || !listLanguage.equals(Ui.language);
         boolean missing = false;
         for (Pick pick : wanted()) missing |= needsWork(pick);
@@ -376,7 +389,7 @@ final class Recs {
     void prefetchAll() {
         if (!hasKey(context) || fetching || inBackoff(System.currentTimeMillis())) return;
         final List<Pick> todo = new ArrayList<>();
-        for (Pick p : picks) if (needsWork(p)) todo.add(p);
+        for (Pick p : picks) if (needsWork(p) && todo.size() < 30) todo.add(p);
         if (todo.isEmpty()) return;
         fetching = true;
         io.execute(() -> {
@@ -434,21 +447,32 @@ final class Recs {
 
         List<Pick> list = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        alternate(list, seen, trending("movie"), trending("tv"), LIST_SIZE);
-
-        if (INCLUDE_NEW_RELEASES && list.size() < LIST_SIZE) {
-            try {
-                alternate(list, seen, released("movie", services), released("tv", services), LIST_SIZE);
-            } catch (IOException | JSONException e) {
-                // Optional extra: trending alone is a good list.
-                AppLog.w("recommendations, new releases: " + message(e));
-            }
-        }
+        alternate(list, seen, kindList("movie", services), kindList("tv", services), 2 * PER_KIND);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = currentPeriod;
         listAt = System.currentTimeMillis();
         listLanguage = Ui.language;
+    }
+
+    /**
+     * Up to PER_KIND titles of one kind: what's trending this week on a known service first (their details say where),
+     * then the most popular on the region's known services (the filter itself guarantees the service).
+     */
+    private List<Pick> kindList(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
+        List<Pick> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Pick p : trending(kind)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
+        for (int page = 1; page <= DISCOVER_PAGES && out.size() < PER_KIND; page++) {
+            try {
+                for (Pick p : popular(kind, services, page)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
+            } catch (IOException | JSONException e) {
+                // Optional extra: what we have is a good list.
+                AppLog.w("recommendations, popular: " + message(e));
+                break;
+            }
+        }
+        return out;
     }
 
     /** TMDB's id → known service, for the streaming services listed in the region (installed on this TV or not). */
@@ -485,19 +509,14 @@ final class Recs {
         return out;
     }
 
-    /**
-     * Recent releases on the region's known services: movies from the past year and shows with a new episode in the past
-     * 3 months. Their details (genre, runtime, image) are fetched later, only for the ones that get shown.
-     */
-    private List<Pick> released(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
+    /** The most popular titles on the region's known services (a page of 20). Their details are fetched later. */
+    private List<Pick> popular(String kind, Map<Integer, String[]> services, int page) throws IOException, JSONException {
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String when = kind.equals("movie")
-                ? "&vote_count.gte=30&primary_release_date.gte=" + day(-365) + "&primary_release_date.lte=" + day(0)
-                : "&vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0);
         JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
-                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc"
-                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8") + when).getJSONArray("results");
+                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc&page=" + page
+                + "&vote_count.gte=" + (kind.equals("movie") ? 200 : 100)
+                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")).getJSONArray("results");
         List<Pick> out = new ArrayList<>();
         for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
         return out;
@@ -509,14 +528,6 @@ final class Recs {
             if (i < a.size() && seen.add(key(a.get(i)))) out.add(a.get(i));
             if (i < b.size() && out.size() < max && seen.add(key(b.get(i)))) out.add(b.get(i));
         }
-    }
-
-    /** The date `offset` days from today, as "2026-10-19" (negative = in the past). */
-    private static String day(int offset) {
-        Calendar cal = Calendar.getInstance();
-        cal.add(Calendar.DAY_OF_YEAR, offset);
-        return String.format(Locale.US, "%04d-%02d-%02d",
-                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
     }
 
     private static void add(List<Pick> list, JSONObject o, String kind) {
@@ -770,7 +781,7 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
