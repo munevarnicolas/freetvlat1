@@ -112,35 +112,6 @@ final class HomeMode {
     private static final Object RUN = new Object();
     private static final Object FILE_LOCK = new Object();
 
-    /**
-     * Opens the TV's quick panel, or its notifications, through the TV's own ADB (fixed commands only). True when the
-     * panel took the focus away from this home screen; false when there is no such panel or debugging is off.
-     */
-    static boolean expandPanel(Context c) {
-        try (Adb adb = Adb.connect(c, 5_000, null)) {
-            for (String command : new String[] {"cmd statusbar expand-settings", "cmd statusbar expand-notifications"}) {
-                String out = adb.shell(command);
-                if (out.contains("Can't find service") || out.contains("Unknown command") || out.contains("Exception")) {
-                    AppLog.w("panel: '" + command + "' isn't available: " + out.trim());
-                    continue;
-                }
-                try {
-                    Thread.sleep(700);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-                String focus = adb.shell("dumpsys window | grep mCurrentFocus");
-                boolean moved = !focus.isEmpty() && !focus.contains(PKG);
-                AppLog.w("panel: '" + command + "' -> focus " + focus.trim() + (moved ? " (opened)" : " (nothing)"));
-                if (moved) return true;
-            }
-        } catch (IOException e) {
-            AppLog.w("panel: no ADB: " + e.getMessage());
-        }
-        return false;
-    }
-
     // MARK: - Requests (from any process)
 
     /** Asks the main process to switch (the settings screen calls this). */

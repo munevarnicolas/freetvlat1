@@ -34,6 +34,8 @@ final class Russian {
             case "Moving ": return "Перемещение: ";
             case ", position ": return ", место ";
             case "Couldn't open ": return "Не удалось открыть ";
+            case "No trailer available for this title": return "Для этого фильма нет трейлера";
+            case "Couldn't open the trailer": return "Не удалось открыть трейлер";
             case " of ": return " из ";
             case ", tab ": return ", вкладка ";
             case " of 3": return " из 3";

@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
 final class HomeApps {
     private HomeApps() {}
 
-    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, NOTIFICATIONS = 6;
+    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
@@ -602,7 +602,6 @@ final class HomeApps {
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
-        if (it.kind == NOTIFICATIONS) return openNotifications(a, from, x, y, w, h);
         Intent intent;
         switch (it.kind) {
             case APP:
@@ -635,77 +634,35 @@ final class HomeApps {
         }
     }
 
-    /**
-     * Where the TV keeps its quick panel and notification panel. In Free My TV mode the stock home screen (Google TV's
-     * launcher, where the panels live) is turned off, so its activities can't start: only enabled packages count.
-     */
-    private static final String[] PANEL_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher",
-            "com.android.systemui", "com.android.tv.settings", "com.tcl.dashboard"};
-
-    /** Names of exported activities that are a quick panel or a notification panel (the quick panel first). */
-    private static boolean quickName(String n) {
-        return n.contains("quicksettings") || n.contains("quickpanel");
-    }
-
-    private static boolean notificationName(String n) {
-        return (n.contains("notification") && n.contains("panel")) || n.contains("notificationssidepanel");
-    }
-
-    /** The panels' activities that are really there and on: AOSP's quick settings action, then the ones found by name. */
-    static List<Intent> panelIntents(Context c) {
-        List<Intent> out = new ArrayList<>();
-        PackageManager pm = c.getPackageManager();
-        for (String action : new String[] {"com.android.tv.QUICK_SETTINGS", "com.android.tv.NOTIFICATION_PANEL"}) {
-            Intent intent = new Intent(action);
-            if (intent.resolveActivity(pm) != null) out.add(intent);
-        }
-        List<ActivityInfo> quick = new ArrayList<>(), notes = new ArrayList<>();
-        for (String pkg : PANEL_PACKAGES) {
-            try {
-                android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
-                if (info.activities == null || !info.applicationInfo.enabled) continue;
-                for (ActivityInfo ai : info.activities) {
-                    String n = ai.name.toLowerCase(Locale.ROOT);
-                    if (!ai.exported || !ai.enabled) continue;
-                    if (quickName(n)) quick.add(ai);
-                    else if (notificationName(n)) notes.add(ai);
-                }
-            } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
-            }
-        }
-        for (ActivityInfo ai : quick) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
-        for (ActivityInfo ai : notes) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
-        return out;
-    }
+    /** SmartTube (by yuliskov): the stable and the beta app. Any other package with "smarttube" in its name counts too. */
+    private static final String[] SMARTTUBE = {"com.liskovsoft.smarttubetv", "com.liskovsoft.smarttubetv.beta"};
 
     /**
-     * The quick panel / notifications button. In order, the first that works: the panel's own activity, if the TV has
-     * it on; the system bar's panels through the TV's own ADB (checked: our home screen must lose the focus); and
-     * last the TV's Wi-Fi settings, so the button always opens something.
+     * A title's trailer: the YouTube video opens in SmartTube. Without SmartTube the TV's own app for YouTube links
+     * takes it. False when nothing could open it.
      */
-    private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
-        for (Intent intent : panelIntents(a)) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
-                AppLog.w("panel: opened " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()));
-                return true;
-            } catch (ActivityNotFoundException | SecurityException e) {
-                AppLog.w("panel: " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()) + " didn't open: " + e.getMessage());
+    static boolean openTrailer(Activity a, String videoId, View from, int x, int y, int w, int h) {
+        if (videoId == null || videoId.isEmpty()) return false;
+        PackageManager pm = a.getPackageManager();
+        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=" + videoId));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        String smart = null;
+        for (ResolveInfo ri : pm.queryIntentActivities(intent, 0)) {
+            String pkg = ri.activityInfo.packageName;
+            if (pkg.toLowerCase(Locale.ROOT).contains("smarttube")) {
+                smart = pkg;
+                break;
             }
         }
-        final Context app = a.getApplicationContext();
-        new Thread(() -> {
-            if (HomeMode.expandPanel(app)) return;
-            a.runOnUiThread(() -> {
-                try {
-                    a.startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                } catch (ActivityNotFoundException | SecurityException e) {
-                    AppLog.w("panel: Wi-Fi settings didn't open: " + e.getMessage());
-                }
-            });
-        }, "panel").start();
-        return true;
+        for (int i = 0; smart == null && i < SMARTTUBE.length; i++) if (launchIntent(pm, SMARTTUBE[i]) != null) smart = SMARTTUBE[i];
+        if (smart != null) intent.setPackage(smart);
+        try {
+            a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            AppLog.w("trailer: couldn't open " + videoId + (smart != null ? " in " + smart : "") + ": " + e.getMessage());
+            return false;
+        }
     }
 
     /**

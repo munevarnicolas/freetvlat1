@@ -112,7 +112,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TAB_KIND = {null, "movie", "tv"};
     private static final int Z_TOP = 4, Z_CARDS = 5, Z_APPS = 10;
     /** Icon buttons at the top right: Android settings and FreeTV settings. */
-    private static final int BUTTONS = 2;
+    private static final int BUTTONS = 1;
 
     private final Activity activity;
     private final Scene scene = new Scene();
@@ -583,13 +583,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         motionDirty = true;
     }
 
-    /** The three corner buttons, with their names in the current language. */
+    /** The corner button, with its name in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
-        // Left to right: the TV's notification panel (a Wi-Fi icon), then Android settings with the gear (right edge).
+        // Android settings with the gear (right edge).
         // Free My TV's own settings are still one tap away: the "Free My TV" tile at the end of the app drawer.
-        lightButtons.add(HomeApps.action(HomeApps.NOTIFICATIONS, "notifications",
-                Ui.tr("Notificações", "Notifications", "Notificaciones"), "wifi"));
         lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
                 Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "settings"));
     }
@@ -910,7 +908,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         h.label = Recs.periodLabel();
         h.title = p.title == null ? "" : p.title;
         h.meta = p.meta == null ? "" : p.meta;
-        h.button = p.pkg != null;
+        h.button = p.trailer != null;
         h.dots = picks.size();
         h.dot = pickIndex;
         h.titleLayout = StaticLayout.Builder.obtain(h.title, 0, h.title.length(), titlePaint, Math.max(1, Math.round(HERO_TITLE_W * k)))
@@ -928,7 +926,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int next = pickIndex;
         for (int i = 0; i < picks.size(); i++) {
             next = (next + dir + picks.size()) % picks.size();
-            if (zone != Z_HERO || picks.get(next).pkg != null) break;
+            if (zone != Z_HERO || picks.get(next).trailer != null) break;
         }
         if (next == pickIndex) return false;
         pickIndex = next;
@@ -2464,10 +2462,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = others.get(gridIndex);
             r = focusedCell;
         } else if (zone == Z_HERO) {
-            Recs.Pick p = currentPick();
-            if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
-            r = heroButton;
+            openTrailer(currentPick(), heroButton);
+            return;
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
             it = statusItems.get(statusIndex);
@@ -2488,10 +2484,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
         } else if (zone == Z_CARDS) {
-            Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
-            if (p == null || p.pkg == null) return;
-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
-            r = cardRects[0];
+            openTrailer(cardIndex < cards.size() ? cards.get(cardIndex) : null, cardRects[0]);
+            return;
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
@@ -2517,6 +2511,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
         if (!opened) showToast(Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label + ".");
+    }
+
+    /** OK on a title: its trailer opens on YouTube, in SmartTube. */
+    private void openTrailer(Recs.Pick p, RectF r) {
+        click.open();
+        if (p == null) return;
+        if (p.trailer == null) {
+            showToast(Ui.tr("Sem trailer disponível para este título", "No trailer available for this title",
+                    "No hay tráiler disponible para este título"));
+            return;
+        }
+        if (!HomeApps.openTrailer(activity, p.trailer, this, Math.round(r.left), Math.round(r.top),
+                Math.round(r.width()), Math.round(r.height()))) {
+            showToast(Ui.tr("Não deu para abrir o trailer", "Couldn't open the trailer", "No se pudo abrir el tráiler"));
+        }
     }
 
     /** Where a drawer rect really is on screen (the open drawer may be scrolled): the app opens from there. */

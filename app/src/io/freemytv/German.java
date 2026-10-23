@@ -24,6 +24,8 @@ final class German {
             case "24h change": return "Änderung in 24 h";
             case "For You": return "Für dich";
             case "Couldn't open ": return "Konnte nicht öffnen: ";
+            case "No trailer available for this title": return "Für diesen Titel ist kein Trailer verfügbar";
+            case "Couldn't open the trailer": return "Der Trailer konnte nicht geöffnet werden";
             case " of ": return " von ";
             case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";
             case "Moving ": return "Verschiebe ";

@@ -15,6 +15,8 @@
     <queries>
         <package android:name="com.netflix.ninja" />
         <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.liskovsoft.smarttubetv" />
+        <package android:name="com.liskovsoft.smarttubetv.beta" />
         <package android:name="com.amazon.amazonvideo.livingroom" />
         <package android:name="com.disney.disneyplus" />
         <package android:name="com.wbd.stream" />
@@ -37,6 +39,10 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="android.media.tv" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.youtube.com" />
         </intent>
     </queries>
 

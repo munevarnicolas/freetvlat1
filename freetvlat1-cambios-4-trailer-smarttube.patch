@@ -1,0 +1,405 @@
+diff --git a/README.md b/README.md
+index 8f0167d..5b98fb4 100644
+--- a/README.md
++++ b/README.md
+@@ -19,7 +19,7 @@ Open source. Built with Claude Code. One button to undo.
+ 
+ - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
+ - **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
+-- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
++- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs. OK on a pick opens its trailer on YouTube, in SmartTube.
+ - **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
+ - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
+ - **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
+diff --git a/app/AndroidManifest.xml b/app/AndroidManifest.xml
+index 1f7bc3f..a1116ca 100644
+--- a/app/AndroidManifest.xml
++++ b/app/AndroidManifest.xml
+@@ -15,6 +15,8 @@
+     <queries>
+         <package android:name="com.netflix.ninja" />
+         <package android:name="com.google.android.youtube.tv" />
++        <package android:name="com.liskovsoft.smarttubetv" />
++        <package android:name="com.liskovsoft.smarttubetv.beta" />
+         <package android:name="com.amazon.amazonvideo.livingroom" />
+         <package android:name="com.disney.disneyplus" />
+         <package android:name="com.wbd.stream" />
+@@ -38,6 +40,10 @@
+             <action android:name="android.intent.action.VIEW" />
+             <data android:scheme="content" android:host="android.media.tv" />
+         </intent>
++        <intent>
++            <action android:name="android.intent.action.VIEW" />
++            <data android:scheme="https" android:host="www.youtube.com" />
++        </intent>
+     </queries>
+ 
+     <uses-feature android:name="android.software.leanback" android:required="false" />
+diff --git a/app/src/io/freemytv/German.java b/app/src/io/freemytv/German.java
+index 66310fb..0f2003a 100644
+--- a/app/src/io/freemytv/German.java
++++ b/app/src/io/freemytv/German.java
+@@ -24,6 +24,8 @@ final class German {
+             case "24h change": return "Änderung in 24 h";
+             case "For You": return "Für dich";
+             case "Couldn't open ": return "Konnte nicht öffnen: ";
++            case "No trailer available for this title": return "Für diesen Titel ist kein Trailer verfügbar";
++            case "Couldn't open the trailer": return "Der Trailer konnte nicht geöffnet werden";
+             case " of ": return " von ";
+             case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";
+             case "Moving ": return "Verschiebe ";
+diff --git a/app/src/io/freemytv/HomeApps.java b/app/src/io/freemytv/HomeApps.java
+index 969bcf3..970e772 100644
+--- a/app/src/io/freemytv/HomeApps.java
++++ b/app/src/io/freemytv/HomeApps.java
+@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
+ final class HomeApps {
+     private HomeApps() {}
+ 
+-    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, NOTIFICATIONS = 6;
++    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
+     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
+     static final int INPUTS = 7;
+     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
+@@ -602,7 +602,6 @@ final class HomeApps {
+ 
+     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
+     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
+-        if (it.kind == NOTIFICATIONS) return openNotifications(a, from, x, y, w, h);
+         Intent intent;
+         switch (it.kind) {
+             case APP:
+@@ -635,77 +634,35 @@ final class HomeApps {
+         }
+     }
+ 
+-    /**
+-     * Where the TV keeps its quick panel and notification panel. In Free My TV mode the stock home screen (Google TV's
+-     * launcher, where the panels live) is turned off, so its activities can't start: only enabled packages count.
+-     */
+-    private static final String[] PANEL_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher",
+-            "com.android.systemui", "com.android.tv.settings", "com.tcl.dashboard"};
+-
+-    /** Names of exported activities that are a quick panel or a notification panel (the quick panel first). */
+-    private static boolean quickName(String n) {
+-        return n.contains("quicksettings") || n.contains("quickpanel");
+-    }
+-
+-    private static boolean notificationName(String n) {
+-        return (n.contains("notification") && n.contains("panel")) || n.contains("notificationssidepanel");
+-    }
+-
+-    /** The panels' activities that are really there and on: AOSP's quick settings action, then the ones found by name. */
+-    static List<Intent> panelIntents(Context c) {
+-        List<Intent> out = new ArrayList<>();
+-        PackageManager pm = c.getPackageManager();
+-        for (String action : new String[] {"com.android.tv.QUICK_SETTINGS", "com.android.tv.NOTIFICATION_PANEL"}) {
+-            Intent intent = new Intent(action);
+-            if (intent.resolveActivity(pm) != null) out.add(intent);
+-        }
+-        List<ActivityInfo> quick = new ArrayList<>(), notes = new ArrayList<>();
+-        for (String pkg : PANEL_PACKAGES) {
+-            try {
+-                android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
+-                if (info.activities == null || !info.applicationInfo.enabled) continue;
+-                for (ActivityInfo ai : info.activities) {
+-                    String n = ai.name.toLowerCase(Locale.ROOT);
+-                    if (!ai.exported || !ai.enabled) continue;
+-                    if (quickName(n)) quick.add(ai);
+-                    else if (notificationName(n)) notes.add(ai);
+-                }
+-            } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+-            }
+-        }
+-        for (ActivityInfo ai : quick) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+-        for (ActivityInfo ai : notes) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+-        return out;
+-    }
++    /** SmartTube (by yuliskov): the stable and the beta app. Any other package with "smarttube" in its name counts too. */
++    private static final String[] SMARTTUBE = {"com.liskovsoft.smarttubetv", "com.liskovsoft.smarttubetv.beta"};
+ 
+     /**
+-     * The quick panel / notifications button. In order, the first that works: the panel's own activity, if the TV has
+-     * it on; the system bar's panels through the TV's own ADB (checked: our home screen must lose the focus); and
+-     * last the TV's Wi-Fi settings, so the button always opens something.
++     * A title's trailer: the YouTube video opens in SmartTube. Without SmartTube the TV's own app for YouTube links
++     * takes it. False when nothing could open it.
+      */
+-    private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
+-        for (Intent intent : panelIntents(a)) {
+-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+-            try {
+-                a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+-                AppLog.w("panel: opened " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()));
+-                return true;
+-            } catch (ActivityNotFoundException | SecurityException e) {
+-                AppLog.w("panel: " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()) + " didn't open: " + e.getMessage());
++    static boolean openTrailer(Activity a, String videoId, View from, int x, int y, int w, int h) {
++        if (videoId == null || videoId.isEmpty()) return false;
++        PackageManager pm = a.getPackageManager();
++        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=" + videoId));
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        String smart = null;
++        for (ResolveInfo ri : pm.queryIntentActivities(intent, 0)) {
++            String pkg = ri.activityInfo.packageName;
++            if (pkg.toLowerCase(Locale.ROOT).contains("smarttube")) {
++                smart = pkg;
++                break;
+             }
+         }
+-        final Context app = a.getApplicationContext();
+-        new Thread(() -> {
+-            if (HomeMode.expandPanel(app)) return;
+-            a.runOnUiThread(() -> {
+-                try {
+-                    a.startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+-                } catch (ActivityNotFoundException | SecurityException e) {
+-                    AppLog.w("panel: Wi-Fi settings didn't open: " + e.getMessage());
+-                }
+-            });
+-        }, "panel").start();
+-        return true;
++        for (int i = 0; smart == null && i < SMARTTUBE.length; i++) if (launchIntent(pm, SMARTTUBE[i]) != null) smart = SMARTTUBE[i];
++        if (smart != null) intent.setPackage(smart);
++        try {
++            a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
++            return true;
++        } catch (ActivityNotFoundException | SecurityException e) {
++            AppLog.w("trailer: couldn't open " + videoId + (smart != null ? " in " + smart : "") + ": " + e.getMessage());
++            return false;
++        }
+     }
+ 
+     /**
+diff --git a/app/src/io/freemytv/HomeMode.java b/app/src/io/freemytv/HomeMode.java
+index 1cca2e8..978e9f7 100644
+--- a/app/src/io/freemytv/HomeMode.java
++++ b/app/src/io/freemytv/HomeMode.java
+@@ -112,35 +112,6 @@ final class HomeMode {
+     private static final Object RUN = new Object();
+     private static final Object FILE_LOCK = new Object();
+ 
+-    /**
+-     * Opens the TV's quick panel, or its notifications, through the TV's own ADB (fixed commands only). True when the
+-     * panel took the focus away from this home screen; false when there is no such panel or debugging is off.
+-     */
+-    static boolean expandPanel(Context c) {
+-        try (Adb adb = Adb.connect(c, 5_000, null)) {
+-            for (String command : new String[] {"cmd statusbar expand-settings", "cmd statusbar expand-notifications"}) {
+-                String out = adb.shell(command);
+-                if (out.contains("Can't find service") || out.contains("Unknown command") || out.contains("Exception")) {
+-                    AppLog.w("panel: '" + command + "' isn't available: " + out.trim());
+-                    continue;
+-                }
+-                try {
+-                    Thread.sleep(700);
+-                } catch (InterruptedException e) {
+-                    Thread.currentThread().interrupt();
+-                    return false;
+-                }
+-                String focus = adb.shell("dumpsys window | grep mCurrentFocus");
+-                boolean moved = !focus.isEmpty() && !focus.contains(PKG);
+-                AppLog.w("panel: '" + command + "' -> focus " + focus.trim() + (moved ? " (opened)" : " (nothing)"));
+-                if (moved) return true;
+-            }
+-        } catch (IOException e) {
+-            AppLog.w("panel: no ADB: " + e.getMessage());
+-        }
+-        return false;
+-    }
+-
+     // MARK: - Requests (from any process)
+ 
+     /** Asks the main process to switch (the settings screen calls this). */
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 9f4a5f3..577ef38 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -112,7 +112,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private static final String[] TAB_KIND = {null, "movie", "tv"};
+     private static final int Z_TOP = 4, Z_CARDS = 5, Z_APPS = 10;
+     /** Icon buttons at the top right: Android settings and FreeTV settings. */
+-    private static final int BUTTONS = 2;
++    private static final int BUTTONS = 1;
+ 
+     private final Activity activity;
+     private final Scene scene = new Scene();
+@@ -583,13 +583,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         motionDirty = true;
+     }
+ 
+-    /** The three corner buttons, with their names in the current language. */
++    /** The corner button, with its name in the current language. */
+     private void makeLightButtons() {
+         lightButtons.clear();
+-        // Left to right: the TV's notification panel (a Wi-Fi icon), then Android settings with the gear (right edge).
++        // Android settings with the gear (right edge).
+         // Free My TV's own settings are still one tap away: the "Free My TV" tile at the end of the app drawer.
+-        lightButtons.add(HomeApps.action(HomeApps.NOTIFICATIONS, "notifications",
+-                Ui.tr("Notificações", "Notifications", "Notificaciones"), "wifi"));
+         lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
+                 Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "settings"));
+     }
+@@ -910,7 +908,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         h.label = Recs.periodLabel();
+         h.title = p.title == null ? "" : p.title;
+         h.meta = p.meta == null ? "" : p.meta;
+-        h.button = p.pkg != null;
++        h.button = p.trailer != null;
+         h.dots = picks.size();
+         h.dot = pickIndex;
+         h.titleLayout = StaticLayout.Builder.obtain(h.title, 0, h.title.length(), titlePaint, Math.max(1, Math.round(HERO_TITLE_W * k)))
+@@ -928,7 +926,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         int next = pickIndex;
+         for (int i = 0; i < picks.size(); i++) {
+             next = (next + dir + picks.size()) % picks.size();
+-            if (zone != Z_HERO || picks.get(next).pkg != null) break;
++            if (zone != Z_HERO || picks.get(next).trailer != null) break;
+         }
+         if (next == pickIndex) return false;
+         pickIndex = next;
+@@ -2464,10 +2462,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             it = others.get(gridIndex);
+             r = focusedCell;
+         } else if (zone == Z_HERO) {
+-            Recs.Pick p = currentPick();
+-            if (p == null || p.pkg == null) return;
+-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
+-            r = heroButton;
++            openTrailer(currentPick(), heroButton);
++            return;
+         } else if (zone == Z_STATUS) {
+             if (statusItems.isEmpty()) return;
+             it = statusItems.get(statusIndex);
+@@ -2488,10 +2484,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             it = lightButtons.get(topIndex - 3);
+             r = topRects[topIndex];
+         } else if (zone == Z_CARDS) {
+-            Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
+-            if (p == null || p.pkg == null) return;
+-            it = HomeApps.app(p.pkg, Recs.serviceName(p));
+-            r = cardRects[0];
++            openTrailer(cardIndex < cards.size() ? cards.get(cardIndex) : null, cardRects[0]);
++            return;
+         } else {
+             if (shelf.isEmpty()) return;
+             it = shelf.get(shelfIndex);
+@@ -2519,6 +2513,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (!opened) showToast(Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label + ".");
+     }
+ 
++    /** OK on a title: its trailer opens on YouTube, in SmartTube. */
++    private void openTrailer(Recs.Pick p, RectF r) {
++        click.open();
++        if (p == null) return;
++        if (p.trailer == null) {
++            showToast(Ui.tr("Sem trailer disponível para este título", "No trailer available for this title",
++                    "No hay tráiler disponible para este título"));
++            return;
++        }
++        if (!HomeApps.openTrailer(activity, p.trailer, this, Math.round(r.left), Math.round(r.top),
++                Math.round(r.width()), Math.round(r.height()))) {
++            showToast(Ui.tr("Não deu para abrir o trailer", "Couldn't open the trailer", "No se pudo abrir el tráiler"));
++        }
++    }
++
+     /** Where a drawer rect really is on screen (the open drawer may be scrolled): the app opens from there. */
+     private RectF scrolled(RectF rect) {
+         openRect.set(rect);
+diff --git a/app/src/io/freemytv/Recs.java b/app/src/io/freemytv/Recs.java
+index 8a8260c..12c68f8 100644
+--- a/app/src/io/freemytv/Recs.java
++++ b/app/src/io/freemytv/Recs.java
+@@ -56,7 +56,8 @@ final class Recs {
+         String kind;                    // "movie" or "tv"
+         String title, backdrop, poster, overview = "", meta = "";
+         String app;                     // the title's service in this region ("netflix"...), or null
+-        String pkg;                     // that service's package if it is installed on this TV (what "Watch" opens)
++        String pkg;                     // that service's package if it is installed on this TV
++        String trailer;                 // the YouTube video id of its trailer (what OK opens, in SmartTube), or null
+         double rating;
+         boolean detailed;
+     }
+@@ -68,7 +69,7 @@ final class Recs {
+     private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
+     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
+     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
+-    private static final int CACHE_VERSION = 6;
++    private static final int CACHE_VERSION = 7;
+ 
+     /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
+     private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
+@@ -546,13 +547,15 @@ final class Recs {
+     /** Title, texts, image, genre, runtime (or seasons) and the service it's on in the region. */
+     private void fetchDetails(Pick p) throws IOException, JSONException {
+         JSONObject o = get("/" + p.kind + "/" + p.id + "?language=" + lang()
+-                + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
++                + "&append_to_response=watch/providers,images,videos&include_image_language=null," + Ui.language + ",en"
++                + "&include_video_language=" + Ui.language + ",en");
+         p.title = title(p, o);
+         p.overview = o.optString("overview", "");
+         p.poster = o.optString("poster_path", "");
+         p.rating = o.optDouble("vote_average", 0);
+         String best = bestBackdrop(o.optJSONObject("images"));
+         if (best != null) p.backdrop = best;
++        p.trailer = bestTrailer(o.optJSONObject("videos"));
+ 
+         JSONObject providers = o.optJSONObject("watch/providers");
+         JSONObject results = providers == null ? null : providers.optJSONObject("results");
+@@ -576,6 +579,27 @@ final class Recs {
+         p.detailed = true;
+     }
+ 
++    /** The best YouTube trailer: a trailer over a teaser, an official one, one in the TV's language. Null if none. */
++    private static String bestTrailer(JSONObject videos) {
++        JSONArray list = videos == null ? null : videos.optJSONArray("results");
++        String best = null;
++        int bestScore = 0;
++        for (int i = 0; list != null && i < list.length(); i++) {
++            JSONObject v = list.optJSONObject(i);
++            if (v == null || !"YouTube".equals(v.optString("site")) || v.optString("key").isEmpty()) continue;
++            String type = v.optString("type");
++            int score = "Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 1 : 0;
++            if (score == 0) continue;
++            if (v.optBoolean("official")) score++;
++            if (Ui.language.equals(v.optString("iso_639_1"))) score += 2;
++            if (score > bestScore) {
++                bestScore = score;
++                best = v.optString("key");
++            }
++        }
++        return best;
++    }
++
+     /**
+      * The title's service in the region, among the known ones. An installed one is preferred (then `pkg` is set and
+      * "Watch" can open it); otherwise the first known one, with `pkg` left null. No known service: `app` stays null and
+@@ -826,6 +850,7 @@ final class Recs {
+                         .put("meta", p.meta == null ? "" : p.meta)
+                         .put("app", p.app == null ? "" : p.app)
+                         .put("pkg", p.pkg == null ? "" : p.pkg)
++                        .put("trailer", p.trailer == null ? "" : p.trailer)
+                         .put("detailed", p.detailed));
+             }
+             cache.edit()
+@@ -857,6 +882,7 @@ final class Recs {
+             p.meta = o.optString("meta");
+             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
+             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
++            p.trailer = o.optString("trailer").isEmpty() ? null : o.optString("trailer");
+             p.detailed = o.optBoolean("detailed");
+             out.add(p);
+         }
+diff --git a/app/src/io/freemytv/Russian.java b/app/src/io/freemytv/Russian.java
+index 45d8d26..1b5bcc6 100644
+--- a/app/src/io/freemytv/Russian.java
++++ b/app/src/io/freemytv/Russian.java
+@@ -34,6 +34,8 @@ final class Russian {
+             case "Moving ": return "Перемещение: ";
+             case ", position ": return ", место ";
+             case "Couldn't open ": return "Не удалось открыть ";
++            case "No trailer available for this title": return "Для этого фильма нет трейлера";
++            case "Couldn't open the trailer": return "Не удалось открыть трейлер";
+             case " of ": return " из ";
+             case ", tab ": return ", вкладка ";
+             case " of 3": return " из 3";

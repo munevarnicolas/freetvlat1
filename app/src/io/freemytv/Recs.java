@@ -56,7 +56,8 @@ final class Recs {
         String kind;                    // "movie" or "tv"
         String title, backdrop, poster, overview = "", meta = "";
         String app;                     // the title's service in this region ("netflix"...), or null
-        String pkg;                     // that service's package if it is installed on this TV (what "Watch" opens)
+        String pkg;                     // that service's package if it is installed on this TV
+        String trailer;                 // the YouTube video id of its trailer (what OK opens, in SmartTube), or null
         double rating;
         boolean detailed;
     }
@@ -68,7 +69,7 @@ final class Recs {
     private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 6;
+    private static final int CACHE_VERSION = 7;
 
     /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
     private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
@@ -546,13 +547,15 @@ final class Recs {
     /** Title, texts, image, genre, runtime (or seasons) and the service it's on in the region. */
     private void fetchDetails(Pick p) throws IOException, JSONException {
         JSONObject o = get("/" + p.kind + "/" + p.id + "?language=" + lang()
-                + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
+                + "&append_to_response=watch/providers,images,videos&include_image_language=null," + Ui.language + ",en"
+                + "&include_video_language=" + Ui.language + ",en");
         p.title = title(p, o);
         p.overview = o.optString("overview", "");
         p.poster = o.optString("poster_path", "");
         p.rating = o.optDouble("vote_average", 0);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        p.trailer = bestTrailer(o.optJSONObject("videos"));
 
         JSONObject providers = o.optJSONObject("watch/providers");
         JSONObject results = providers == null ? null : providers.optJSONObject("results");
@@ -574,6 +577,27 @@ final class Recs {
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
+    }
+
+    /** The best YouTube trailer: a trailer over a teaser, an official one, one in the TV's language. Null if none. */
+    private static String bestTrailer(JSONObject videos) {
+        JSONArray list = videos == null ? null : videos.optJSONArray("results");
+        String best = null;
+        int bestScore = 0;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject v = list.optJSONObject(i);
+            if (v == null || !"YouTube".equals(v.optString("site")) || v.optString("key").isEmpty()) continue;
+            String type = v.optString("type");
+            int score = "Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 1 : 0;
+            if (score == 0) continue;
+            if (v.optBoolean("official")) score++;
+            if (Ui.language.equals(v.optString("iso_639_1"))) score += 2;
+            if (score > bestScore) {
+                bestScore = score;
+                best = v.optString("key");
+            }
+        }
+        return best;
     }
 
     /**
@@ -826,6 +850,7 @@ final class Recs {
                         .put("meta", p.meta == null ? "" : p.meta)
                         .put("app", p.app == null ? "" : p.app)
                         .put("pkg", p.pkg == null ? "" : p.pkg)
+                        .put("trailer", p.trailer == null ? "" : p.trailer)
                         .put("detailed", p.detailed));
             }
             cache.edit()
@@ -857,6 +882,7 @@ final class Recs {
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
+            p.trailer = o.optString("trailer").isEmpty() ? null : o.optString("trailer");
             p.detailed = o.optBoolean("detailed");
             out.add(p);
         }
