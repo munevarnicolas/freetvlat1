@@ -1,0 +1,673 @@
+diff --git a/README.md b/README.md
+index 1628030..8f0167d 100644
+--- a/README.md
++++ b/README.md
+@@ -130,15 +130,20 @@ Free, and it takes two minutes: create an account at [themoviedb.org](https://ww
+ 
+ [#own-icons](#own-icons)
+ 
+-Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp). Name the file after the
+-app's package and put it in the app's icons folder on the TV:
++Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp).
++
++**From the TV:** hold OK on an app for 2 seconds (on the shelf the move mode starts first, at half a second, and is
++cancelled), release, and a menu offers *Choose an image…* (a file picker such as CX File Explorer opens) and, when the
++app already has an own icon, *Restore the original icon*. A picture close to the tile's shape fills it; any other shape
++(a square app icon, a tall poster) is shown whole over a blurred copy of itself.
++
++**From a computer:** name the file after the app's package and put it in the app's icons folder on the TV:
+ 
+ ```
+ adb push netflix.png /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png
+ ```
+ 
+-The picture is center-cropped to the tile (5:3 on the shelf, 16:9 under it), so a 5:3 picture such as 1500 × 900 fits
+-the shelf without losing anything. Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
++A 5:3 picture such as 1500 × 900 fills the shelf tile exactly (16:9 under the shelf). Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
+ original icon comes back. `adb shell pm list packages` lists the package names.
+ 
+ ## Going back
+diff --git a/app/AndroidManifest.xml b/app/AndroidManifest.xml
+index f4f4978..1f7bc3f 100644
+--- a/app/AndroidManifest.xml
++++ b/app/AndroidManifest.xml
+@@ -28,6 +28,8 @@
+         <package android:name="com.google.android.tv" />
+         <package android:name="com.mediatek.wwtv.tvcenter" />
+         <package android:name="com.sony.dtv.tvx" />
++        <package android:name="com.google.android.apps.tv.launcherx" />
++        <package android:name="com.google.android.tvlauncher" />
+         <intent>
+             <action android:name="android.intent.action.MAIN" />
+             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+diff --git a/app/assets/symbols/wifi.png b/app/assets/symbols/wifi.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec7e2ce7741386e7fc4195e7f44a71f4cddc986a
+GIT binary patch
+literal 4791
+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
+RS3m#&002ovPDHLkV1juV11SIi
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/src/io/freemytv/Backdrop.java b/app/src/io/freemytv/Backdrop.java
+index e1ea38b..da313b1 100644
+--- a/app/src/io/freemytv/Backdrop.java
++++ b/app/src/io/freemytv/Backdrop.java
+@@ -23,8 +23,6 @@ import android.graphics.Shader;
+  */
+ final class Backdrop {
+     static final int W = 1920, H = 1080, FW = 192, FH = 108, GW = 480, GH = 270;
+-    /** The light and night backgrounds: 480 × 270, so they are stretched 4× on screen (the 192 × 108 frost was 10×). */
+-    static final int BW = 480, BH = 270;
+     /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
+     static final int WIDE_W = 1092, WIDE_H = 464, TALL_W = 336, TALL_H = 464;
+     final Bitmap image;
+@@ -37,7 +35,7 @@ final class Backdrop {
+     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+ 
+     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
+-                     int[] night, int[] nightGlass, int[] lightBg, int[] nightBg) {
++                     int[] night, int[] nightGlass) {
+         this.image = image;
+         this.frost = frost;
+         this.glass = glass;
+@@ -47,8 +45,8 @@ final class Backdrop {
+         this.lightGlass = lightGlass;
+         this.nightFrost = night;
+         this.nightGlass = nightGlass;
+-        lightImage = lightBg == null ? null : Bitmap.createBitmap(lightBg, BW, BH, Bitmap.Config.ARGB_8888);
+-        nightImage = nightBg == null ? null : Bitmap.createBitmap(nightBg, BW, BH, Bitmap.Config.ARGB_8888);
++        lightImage = light == null ? null : Bitmap.createBitmap(light, FW, FH, Bitmap.Config.ARGB_8888);
++        nightImage = night == null ? null : Bitmap.createBitmap(night, FW, FH, Bitmap.Config.ARGB_8888);
+     }
+ 
+     static Backdrop make(Bitmap src, boolean forLight) {
+@@ -63,18 +61,13 @@ final class Backdrop {
+             // Light design: everything comes from the photo without scrims.
+             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+             int[] frost = reduce(out, FW, FH, 3, 3);
+-            // The background: a much softer blur at a higher resolution than the frost (box radius 12 on 480 px is
+-            // about 50 px on screen), so there are no creases from stretching a tiny image and the colors flow like
+-            // tvOS 26's. Day: pastel (light, but with the photo's hue and a good part of its color); night: darkened.
+-            int[] soft = reduce(out, BW, BH, 12, 3);
+-            int[] light = pastel(soft.clone());
++            int[] light = lighten(frost.clone(), 0.40f, 0.32f, 1.5f);
+             int[] glass = reduce(out, GW, GH, 2, 2);
+-            int[] lightGlass = pastel(glass.clone());     // the glass shows the same tones as the background around it
++            int[] lightGlass = lighten(glass.clone(), 0.50f, 0.28f, 1.3f);
+             int[] night = darken(frost.clone(), 0.76f);
+-            int[] nightBg = darken(soft, 0.76f);
+             int[] nightGlass = darken(glass, 0.56f);
+             out.recycle();
+-            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, light, nightBg);
++            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
+         }
+ 
+         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
+@@ -101,7 +94,7 @@ final class Backdrop {
+ 
+         int[] frost = reduce(out, FW, FH, 3, 3);
+         int[] glass = reduce(out, GW, GH, 2, 2);
+-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null, null, null);
++        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+     }
+ 
+     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
+@@ -186,44 +179,7 @@ final class Backdrop {
+     }
+ 
+     /**
+-     * Day look: the photo's hue at a high lightness, like the pastel backgrounds of tvOS 26. Mixing with white (see
+-     * lighten) washes the color out in proportion; here the lightness is set directly (0.76 to 0.94, brighter where the
+-     * photo is brighter, so its gradient stays) and the saturation is lifted (more for muted colors than for vivid
+-     * ones, and capped so it never turns neon). The dark text (1D1D1F and 6E6E73) keeps its contrast: the result is
+-     * never darker than about 0.76 lightness.
+-     */
+-    private static int[] pastel(int[] px) {
+-        for (int i = 0; i < px.length; i++) {
+-            int p = px[i];
+-            float r = ((p >> 16) & 255) / 255f, g = ((p >> 8) & 255) / 255f, b = (p & 255) / 255f;
+-            float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+-            float l = (max + min) / 2, d = max - min;
+-            float s = d < 1e-4f ? 0 : d / (1 - Math.abs(2 * l - 1));
+-            float hue = 0;
+-            if (d >= 1e-4f) {
+-                if (max == r) hue = ((g - b) / d) % 6;
+-                else if (max == g) hue = (b - r) / d + 2;
+-                else hue = (r - g) / d + 4;
+-                if (hue < 0) hue += 6;
+-            }
+-            float ls = 0.76f + 0.18f * Math.max(0, Math.min(1, l));
+-            float ss = Math.min(0.82f, (1 - (float) Math.pow(1 - Math.min(1, s), 1.8)) * 0.9f);
+-            // HSL → RGB
+-            float c = (1 - Math.abs(2 * ls - 1)) * ss, x = c * (1 - Math.abs(hue % 2 - 1)), m = ls - c / 2;
+-            float rr, gg, bb;
+-            if (hue < 1) { rr = c; gg = x; bb = 0; }
+-            else if (hue < 2) { rr = x; gg = c; bb = 0; }
+-            else if (hue < 3) { rr = 0; gg = c; bb = x; }
+-            else if (hue < 4) { rr = 0; gg = x; bb = c; }
+-            else if (hue < 5) { rr = x; gg = 0; bb = c; }
+-            else { rr = c; gg = 0; bb = x; }
+-            px[i] = 0xFF000000 | (Math.round((rr + m) * 255) << 16) | (Math.round((gg + m) * 255) << 8) | Math.round((bb + m) * 255);
+-        }
+-        return px;
+-    }
+-
+-    /**
+-     * Previous day look (kept for reference, no longer used): lighter than the photo but keeping its color and its gradient. The photo's colors are
++     * Day look, like tvOS 26: lighter than the photo but keeping its color and its gradient. The photo's colors are
+      * saturated a little, then mixed with white: dark areas get more white (so the dark text reads), bright ones keep
+      * more of their color. A flat 82 % of white (the old look) erased the photo's gradient.
+      */
+diff --git a/app/src/io/freemytv/HomeActivity.java b/app/src/io/freemytv/HomeActivity.java
+index 540b9e2..1aad72b 100644
+--- a/app/src/io/freemytv/HomeActivity.java
++++ b/app/src/io/freemytv/HomeActivity.java
+@@ -21,6 +21,7 @@ public class HomeActivity extends Activity {
+     @Override protected void onCreate(Bundle savedInstanceState) {
+         super.onCreate(savedInstanceState);
+         Watchdog.install(this);
++        if (savedInstanceState != null) HomeApps.pendingIconPkg = savedInstanceState.getString("iconPkg");
+         if (Watchdog.crashedTooOften(this)) {
+             // Don't try to draw again: only show a notice while the main process restores the original home screen.
+             HomeMode.requestRevertHome(this);
+@@ -51,6 +52,17 @@ public class HomeActivity extends Activity {
+         if (home != null) home.resume();
+     }
+ 
++    @Override protected void onSaveInstanceState(Bundle outState) {
++        super.onSaveInstanceState(outState);
++        if (HomeApps.pendingIconPkg != null) outState.putString("iconPkg", HomeApps.pendingIconPkg);
++    }
++
++    /** The file picker opened by holding OK on an app answered. */
++    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
++        super.onActivityResult(requestCode, resultCode, data);
++        if (requestCode == HomeView.REQ_ICON && home != null) home.iconPicked(resultCode, data);
++    }
++
+     @Override protected void onPause() {
+         if (home != null) home.pause();
+         super.onPause();
+diff --git a/app/src/io/freemytv/HomeApps.java b/app/src/io/freemytv/HomeApps.java
+index 628d484..88cf8d6 100644
+--- a/app/src/io/freemytv/HomeApps.java
++++ b/app/src/io/freemytv/HomeApps.java
+@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
+ final class HomeApps {
+     private HomeApps() {}
+ 
+-    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
++    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, NOTIFICATIONS = 6;
+     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
+     static final int INPUTS = 7;
+     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
+@@ -204,14 +204,16 @@ final class HomeApps {
+             while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
+             Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
+             if (src == null) return null;
+-            // Center-crop to the tile's shape, then scale to the exact size.
++            // A picture close to the tile's shape fills it (center-cropped). Any other shape (a square app icon, a
++            // tall poster) is shown whole, centered over a blurred copy of itself, so nothing important is cut off.
+             float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
+-            int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
+-            int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
+-            Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
+-            Bitmap icon = Bitmap.createScaledBitmap(crop, w, h, true);
+-            if (crop != src) src.recycle();
+-            if (icon != crop) crop.recycle();
++            Bitmap icon;
++            if (Math.abs(have / want - 1) <= 0.15f) {
++                icon = coverScaled(src, w, h);
++            } else {
++                icon = fitOnBlur(src, w, h);
++            }
++            if (icon != src) src.recycle();
+             if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
+             icon.setHasMipMap(true);
+             OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
+@@ -222,6 +224,97 @@ final class HomeApps {
+         }
+     }
+ 
++    /** The picture center-cropped to the shape w × h and scaled to that size. */
++    private static Bitmap coverScaled(Bitmap src, int w, int h) {
++        float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
++        int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
++        int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
++        Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
++        Bitmap scaled = Bitmap.createScaledBitmap(crop, w, h, true);
++        if (crop != src && crop != scaled) crop.recycle();
++        return scaled;
++    }
++
++    /** The whole picture (with a small margin) centered on w × h, over a blurred, slightly darkened copy of itself. */
++    private static Bitmap fitOnBlur(Bitmap src, int w, int h) {
++        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
++        Canvas cv = new Canvas(out);
++        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
++        // Blur: shrink the covering picture to a few pixels and stretch it back up in two steps.
++        Bitmap tiny = coverScaled(src, Math.max(2, w / 24), Math.max(2, h / 24));
++        Bitmap mid = Bitmap.createScaledBitmap(tiny, Math.max(2, w / 6), Math.max(2, h / 6), true);
++        cv.drawBitmap(mid, null, new RectF(0, 0, w, h), paint);
++        cv.drawColor(0x33000000);
++        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * 0.9f;
++        int dw = Math.max(1, Math.round(src.getWidth() * scale)), dh = Math.max(1, Math.round(src.getHeight() * scale));
++        Bitmap fit = Bitmap.createScaledBitmap(src, dw, dh, true);
++        cv.drawBitmap(fit, (w - dw) / 2f, (h - dh) / 2f, paint);
++        if (tiny != mid) tiny.recycle();
++        if (fit != src) fit.recycle();
++        return out;
++    }
++
++    /** True when the person has set an own icon for this app (by package or key). */
++    static boolean hasOwnIcon(Context c, String pkg, String key) {
++        File dir = iconsDir(c);
++        if (dir == null) return false;
++        for (String name : new String[] {pkg, key}) {
++            if (name == null) continue;
++            for (String ext : ICON_EXTENSIONS) if (new File(dir, name + ext).isFile()) return true;
++        }
++        return false;
++    }
++
++    /** Removes the own icon (any format) of the app: its original icon comes back. */
++    static synchronized void removeOwnIcon(Context c, String pkg, String key) {
++        File dir = iconsDir(c);
++        if (dir == null) return;
++        for (String name : new String[] {pkg, key}) {
++            if (name == null) continue;
++            for (String ext : ICON_EXTENSIONS) new File(dir, name + ext).delete();
++            String prefix = new File(dir, name).getPath();
++            OWN.keySet().removeIf(k -> k.startsWith(prefix));
++        }
++    }
++
++    /** The package whose icon is being chosen while the file picker is open (kept across a restart of the home screen). */
++    static String pendingIconPkg;
++
++    /** Saves the picture the person chose (png, jpg, webp...) as the app's own icon, at most 1600 px on its long side. */
++    static synchronized boolean saveOwnIcon(Context c, String pkg, android.net.Uri uri) {
++        File dir = iconsDir(c);
++        if (dir == null || pkg == null) return false;
++        try {
++            BitmapFactory.Options bounds = new BitmapFactory.Options();
++            bounds.inJustDecodeBounds = true;
++            try (InputStream in = c.getContentResolver().openInputStream(uri)) {
++                if (in == null) return false;
++                BitmapFactory.decodeStream(in, null, bounds);
++            }
++            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false;
++            BitmapFactory.Options opts = new BitmapFactory.Options();
++            opts.inSampleSize = 1;
++            while (Math.max(bounds.outWidth, bounds.outHeight) / (opts.inSampleSize * 2) >= 1600) opts.inSampleSize *= 2;
++            Bitmap bmp;
++            try (InputStream in = c.getContentResolver().openInputStream(uri)) {
++                if (in == null) return false;
++                bmp = BitmapFactory.decodeStream(in, null, opts);
++            }
++            if (bmp == null) return false;
++            boolean alpha = bmp.hasAlpha();       // PNG keeps transparency; photos go smaller as JPEG
++            File tmp = new File(dir, pkg + ".tmp");
++            try (FileOutputStream out = new FileOutputStream(tmp)) {
++                if (!bmp.compress(alpha ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, alpha ? 100 : 92, out)) return false;
++            }
++            bmp.recycle();
++            removeOwnIcon(c, pkg, null);          // an older picture, in whatever format
++            return tmp.renameTo(new File(dir, pkg + (alpha ? ".png" : ".jpg")));
++        } catch (IOException | RuntimeException | OutOfMemoryError e) {
++            AppLog.w("couldn't save the icon of " + pkg + ": " + e.getMessage());
++            return false;
++        }
++    }
++
+     private static String[] known(String pkg) {
+         for (String[] d : SHELF) if (d[2].equals(pkg)) return d;
+         return null;
+@@ -445,6 +538,7 @@ final class HomeApps {
+ 
+     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
+     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
++        if (it.kind == NOTIFICATIONS) return openNotifications(a, from, x, y, w, h);
+         Intent intent;
+         switch (it.kind) {
+             case APP:
+@@ -477,6 +571,49 @@ final class HomeApps {
+         }
+     }
+ 
++    /** The TV launchers that own the notification panel (Google TV, then the older Android TV one). */
++    private static final String[] NOTIFICATION_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher"};
++
++    /**
++     * The TV's own notification panel. Google TV does not document an intent for it, so the launchers' own activities
++     * are searched at run time (exported, with "notification" in the name, the panel first); the Android TV launcher's
++     * known panel activity goes last. They are tried in order until one opens.
++     */
++    static List<Intent> notificationIntents(Context c) {
++        List<Intent> out = new ArrayList<>();
++        PackageManager pm = c.getPackageManager();
++        for (String pkg : NOTIFICATION_PACKAGES) {
++            try {
++                android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
++                if (info.activities == null) continue;
++                List<ActivityInfo> found = new ArrayList<>();
++                for (ActivityInfo ai : info.activities) {
++                    String n = ai.name.toLowerCase(Locale.ROOT);
++                    if (ai.exported && ai.enabled && n.contains("notification") && !n.contains("setting")) found.add(ai);
++                }
++                Collections.sort(found, (x, y) -> Boolean.compare(!x.name.contains("Panel"), !y.name.contains("Panel")));
++                for (ActivityInfo ai : found) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
++            } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
++            }
++        }
++        out.add(new Intent().setComponent(new ComponentName("com.google.android.tvlauncher",
++                "com.google.android.tvlauncher.notifications.NotificationsSidePanelActivity")));
++        return out;
++    }
++
++    private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
++        for (Intent intent : notificationIntents(a)) {
++            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++            try {
++                a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
++                return true;
++            } catch (ActivityNotFoundException | SecurityException e) {
++                AppLog.w("notifications: " + intent.getComponent() + " didn't open: " + e.getMessage());
++            }
++        }
++        return false;
++    }
++
+     /**
+      * Live TV: tune the antenna input directly. MediaTek TV Center otherwise restores the last source used, which can
+      * be HDMI, so its explicit activity receives the tuner URI. Other TV apps keep the standard channel-list request.
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 7ffe1fb..5d67e9d 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -3,6 +3,7 @@ package io.freemytv;
+ import android.accessibilityservice.AccessibilityServiceInfo;
+ import android.app.Activity;
+ import android.content.Context;
++import android.content.Intent;
+ import android.content.SharedPreferences;
+ import android.graphics.Bitmap;
+ import android.graphics.BitmapShader;
+@@ -197,6 +198,82 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private List<HomeApps.Item> reorderOrigin;
+     private final Runnable holdStart = () -> { if (this.okDown && this.holdArmed) startReorder(); };
+ 
++    // Holding OK for 2 s on an app (shelf, drawer or All Apps) offers to change its icon. On the shelf the move mode
++    // starts first (at 0.5 s); at 2 s it is cancelled and, when OK is released, the icon menu opens.
++    static final int REQ_ICON = 4107;
++    private static final long ICON_HOLD_MS = 2000;
++    private boolean iconPending;
++    private HomeApps.Item iconItem;
++    private final Runnable iconHold = this::iconHeld;
++
++    private void iconHeld() {
++        if (!okDown || iconItem == null) return;
++        if (reordering) cancelReorder(false);
++        handler.removeCallbacks(holdStart);
++        holdArmed = false;
++        okHeld = true;                  // the release must not open the app
++        iconPending = true;
++        click.open();
++        showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
++    }
++
++    /** The app under the focus, if its icon can be changed. */
++    private HomeApps.Item iconTarget() {
++        HomeApps.Item it = null;
++        if (sheetOpen) {
++            if (gridIndex < others.size()) it = others.get(gridIndex);
++        } else if (zone == Z_SHELF) {
++            if (shelfIndex < shelf.size()) it = shelf.get(shelfIndex);
++        } else if (zone == Z_APPS) {
++            if (appIndex < others.size()) it = others.get(appIndex);
++        }
++        return it != null && it.kind == HomeApps.APP && it.pkg != null ? it : null;
++    }
++
++    private void showIconDialog(final HomeApps.Item it) {
++        final boolean own = HomeApps.hasOwnIcon(getContext(), it.pkg, it.key);
++        final List<String> labels = new ArrayList<>();
++        labels.add(Ui.tr("Escolher imagem…", "Choose an image…", "Elegir imagen…"));
++        if (own) labels.add(Ui.tr("Restaurar o ícone original", "Restore the original icon", "Restaurar el icono original"));
++        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
++                .setTitle(Ui.tr("Ícone de ", "Icon for ", "Icono de ") + it.label)
++                .setItems(labels.toArray(new String[0]), (d, which) -> {
++                    if (which == 0) {
++                        HomeApps.pendingIconPkg = it.pkg;
++                        Intent get = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
++                        try {
++                            activity.startActivityForResult(Intent.createChooser(get,
++                                    Ui.tr("Escolher imagem", "Choose an image", "Elegir imagen")), REQ_ICON);
++                        } catch (android.content.ActivityNotFoundException e) {
++                            HomeApps.pendingIconPkg = null;
++                            showToast(Ui.tr("Nenhum app para escolher arquivos", "No app to pick files", "No hay app para elegir archivos"));
++                        }
++                    } else {
++                        HomeApps.removeOwnIcon(getContext(), it.pkg, it.key);
++                        showToast(Ui.tr("Ícone original restaurado", "Original icon restored", "Icono original restaurado"));
++                        reload();
++                    }
++                })
++                .show();
++    }
++
++    /** The file picker answered (HomeActivity.onActivityResult): the chosen picture becomes the app's icon. */
++    void iconPicked(int resultCode, Intent data) {
++        final String pkg = HomeApps.pendingIconPkg;
++        HomeApps.pendingIconPkg = null;
++        if (pkg == null || resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
++        final android.net.Uri uri = data.getData();
++        final Context c = getContext().getApplicationContext();
++        LOADER.execute(() -> {
++            final boolean ok = HomeApps.saveOwnIcon(c, pkg, uri);
++            handler.post(() -> {
++                showToast(ok ? Ui.tr("Ícone alterado", "Icon changed", "Icono cambiado")
++                        : Ui.tr("Não consegui usar essa imagem", "Couldn't use that image", "No pude usar esa imagen"));
++                if (ok) reload();
++            });
++        });
++    }
++
+     // Corner capsule
+     private List<HomeApps.Item> statusItems = new ArrayList<>();
+     private Spring[] statusFocus = new Spring[0];
+@@ -464,6 +541,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         running = false;
+         cancelReorder(true);
+         handler.removeCallbacks(holdStart);
++        handler.removeCallbacks(iconHold);
++        iconItem = null;
++        iconPending = false;
+         okHeld = holdArmed = false;
+         Choreographer.getInstance().removeFrameCallback(this);
+         handler.removeCallbacks(tick);
+@@ -506,11 +586,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     /** The three corner buttons, with their names in the current language. */
+     private void makeLightButtons() {
+         lightButtons.clear();
+-        // Left to right: FreeTV settings, then Android settings (the last one sits at the right edge).
+-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings",
+-                Ui.tr("Ajustes do FreeTV", "FreeTV Settings", "Ajustes de FreeTV"), "settings"));
++        // Left to right: the TV's notification panel (a Wi-Fi icon), then Android settings with the gear (right edge).
++        // Free My TV's own settings are still one tap away: the "Free My TV" tile at the end of the app drawer.
++        lightButtons.add(HomeApps.action(HomeApps.NOTIFICATIONS, "notifications",
++                Ui.tr("Notificações", "Notifications", "Notificaciones"), "wifi"));
+         lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
+-                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
++                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "settings"));
+     }
+ 
+     private static String[] tabs() {
+@@ -2062,6 +2143,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 && code != KeyEvent.KEYCODE_NUMPAD_ENTER) {
+             holdArmed = false;      // another key while OK is held: no move mode
+             handler.removeCallbacks(holdStart);
++            handler.removeCallbacks(iconHold);
++            iconItem = null;
+         }
+         switch (code) {
+             case KeyEvent.KEYCODE_DPAD_LEFT:
+@@ -2088,16 +2171,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                         okDown = true;
+                         okHeld = false;
+                         handler.removeCallbacks(holdStart);
++                        handler.removeCallbacks(iconHold);
++                        iconPending = false;
+                         holdArmed = canReorder();
+                         if (holdArmed) handler.postDelayed(holdStart, HOLD_MS);
++                        iconItem = iconTarget();
++                        if (iconItem != null) handler.postDelayed(iconHold, ICON_HOLD_MS);
+                     } else if (okDown && holdArmed && e.isLongPress()) {
+                         startReorder();
+                     }
+                 } else {
+                     holdArmed = false;
+                     handler.removeCallbacks(holdStart);
++                    handler.removeCallbacks(iconHold);
++                    final HomeApps.Item changeIcon = iconPending ? iconItem : null;
++                    iconPending = false;
++                    iconItem = null;
+                     if (okDown && !okHeld && !e.isCanceled() && spoken.keyClick()) activate();
+                     okDown = okHeld = false;
++                    if (changeIcon != null) showIconDialog(changeIcon);
+                 }
+                 return true;
+             case KeyEvent.KEYCODE_BACK:
+@@ -2393,7 +2485,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         switch (e.getKeyCode()) {
+             case KeyEvent.KEYCODE_DPAD_LEFT:
+             case KeyEvent.KEYCODE_DPAD_RIGHT:
+-                if (down) shiftReorder(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
++                if (down) {
++                    handler.removeCallbacks(iconHold);     // moving the app: no icon menu
++                    iconItem = null;
++                    shiftReorder(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
++                }
+                 return true;
+             case KeyEvent.KEYCODE_DPAD_UP:
+             case KeyEvent.KEYCODE_DPAD_DOWN:
+@@ -2403,9 +2499,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                 // The press that lifted the app is still held: its repeats and release do nothing; a new press drops it.
+                 if (down && e.getRepeatCount() == 0) {
++                    handler.removeCallbacks(iconHold);
++                    iconItem = null;
+                     okDown = okHeld = false;
+                     dropReorder();
+                 } else if (!down) {
++                    handler.removeCallbacks(iconHold);     // released before 2 s: the move mode goes on
++                    iconItem = null;
+                     okDown = okHeld = false;
+                 }
+                 return true;
+diff --git a/tools/make_symbols.py b/tools/make_symbols.py
+index ce243e2..07278d8 100644
+--- a/tools/make_symbols.py
++++ b/tools/make_symbols.py
+@@ -18,6 +18,7 @@ MAP = {
+     "check": ("check", 0), "play": ("play_arrow", 1), "tv_settings": ("display_settings", 1),
+     "chevron_down": ("keyboard_arrow_down", 0), "sunrise": ("wb_twilight", 1), "sunset": ("wb_twilight", 1),
+     "live_tv": ("live_tv", 1), "bitcoin": ("currency_bitcoin", 0),
++    "wifi": ("wifi", 1),
+ }
+ 
+ 

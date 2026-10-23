@@ -163,8 +163,9 @@ final class Ui {
     }
 
     
+    /** "11:46": the big clock, the corner, the info line and the screensaver, with no a. m. / p. m. (the weather keeps it). */
     static String clock(long now) {
-        return new SimpleDateFormat("h:mm a", new Locale("es", "CO"))
+        return new SimpleDateFormat("h:mm", new Locale("es", "CO"))
                 .format(new Date(now));
     }   
 

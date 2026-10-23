@@ -1,0 +1,15 @@
+diff --git a/app/src/io/freemytv/Ui.java b/app/src/io/freemytv/Ui.java
+index 2f08865..b3f0e07 100644
+--- a/app/src/io/freemytv/Ui.java
++++ b/app/src/io/freemytv/Ui.java
+@@ -163,8 +163,9 @@ final class Ui {
+     }
+ 
+     
++    /** "11:46": the big clock, the corner, the info line and the screensaver, with no a. m. / p. m. (the weather keeps it). */
+     static String clock(long now) {
+-        return new SimpleDateFormat("h:mm a", new Locale("es", "CO"))
++        return new SimpleDateFormat("h:mm", new Locale("es", "CO"))
+                 .format(new Date(now));
+     }   
+ 

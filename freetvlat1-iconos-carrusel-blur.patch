@@ -1,0 +1,485 @@
+diff --git a/README.md b/README.md
+index bc58f25..1628030 100644
+--- a/README.md
++++ b/README.md
+@@ -126,6 +126,21 @@ Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`:
+ 
+ Free, and it takes two minutes: create an account at [themoviedb.org](https://www.themoviedb.org/signup), then open [Settings → API](https://www.themoviedb.org/settings/api) and request a developer key. Paste the *API Read Access Token* (or the *API Key*) after `tmdb_key=`. It's your key: `config.properties` stays out of git.
+ 
++## Own icons
++
++[#own-icons](#own-icons)
++
++Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp). Name the file after the
++app's package and put it in the app's icons folder on the TV:
++
++```
++adb push netflix.png /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png
++```
++
++The picture is center-cropped to the tile (5:3 on the shelf, 16:9 under it), so a 5:3 picture such as 1500 × 900 fits
++the shelf without losing anything. Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
++original icon comes back. `adb shell pm list packages` lists the package names.
++
+ ## Going back
+ 
+ On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
+diff --git a/app/src/io/freemytv/Backdrop.java b/app/src/io/freemytv/Backdrop.java
+index da313b1..e1ea38b 100644
+--- a/app/src/io/freemytv/Backdrop.java
++++ b/app/src/io/freemytv/Backdrop.java
+@@ -23,6 +23,8 @@ import android.graphics.Shader;
+  */
+ final class Backdrop {
+     static final int W = 1920, H = 1080, FW = 192, FH = 108, GW = 480, GH = 270;
++    /** The light and night backgrounds: 480 × 270, so they are stretched 4× on screen (the 192 × 108 frost was 10×). */
++    static final int BW = 480, BH = 270;
+     /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
+     static final int WIDE_W = 1092, WIDE_H = 464, TALL_W = 336, TALL_H = 464;
+     final Bitmap image;
+@@ -35,7 +37,7 @@ final class Backdrop {
+     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+ 
+     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
+-                     int[] night, int[] nightGlass) {
++                     int[] night, int[] nightGlass, int[] lightBg, int[] nightBg) {
+         this.image = image;
+         this.frost = frost;
+         this.glass = glass;
+@@ -45,8 +47,8 @@ final class Backdrop {
+         this.lightGlass = lightGlass;
+         this.nightFrost = night;
+         this.nightGlass = nightGlass;
+-        lightImage = light == null ? null : Bitmap.createBitmap(light, FW, FH, Bitmap.Config.ARGB_8888);
+-        nightImage = night == null ? null : Bitmap.createBitmap(night, FW, FH, Bitmap.Config.ARGB_8888);
++        lightImage = lightBg == null ? null : Bitmap.createBitmap(lightBg, BW, BH, Bitmap.Config.ARGB_8888);
++        nightImage = nightBg == null ? null : Bitmap.createBitmap(nightBg, BW, BH, Bitmap.Config.ARGB_8888);
+     }
+ 
+     static Backdrop make(Bitmap src, boolean forLight) {
+@@ -61,13 +63,18 @@ final class Backdrop {
+             // Light design: everything comes from the photo without scrims.
+             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+             int[] frost = reduce(out, FW, FH, 3, 3);
+-            int[] light = lighten(frost.clone(), 0.40f, 0.32f, 1.5f);
++            // The background: a much softer blur at a higher resolution than the frost (box radius 12 on 480 px is
++            // about 50 px on screen), so there are no creases from stretching a tiny image and the colors flow like
++            // tvOS 26's. Day: pastel (light, but with the photo's hue and a good part of its color); night: darkened.
++            int[] soft = reduce(out, BW, BH, 12, 3);
++            int[] light = pastel(soft.clone());
+             int[] glass = reduce(out, GW, GH, 2, 2);
+-            int[] lightGlass = lighten(glass.clone(), 0.50f, 0.28f, 1.3f);
++            int[] lightGlass = pastel(glass.clone());     // the glass shows the same tones as the background around it
+             int[] night = darken(frost.clone(), 0.76f);
++            int[] nightBg = darken(soft, 0.76f);
+             int[] nightGlass = darken(glass, 0.56f);
+             out.recycle();
+-            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
++            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, light, nightBg);
+         }
+ 
+         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
+@@ -94,7 +101,7 @@ final class Backdrop {
+ 
+         int[] frost = reduce(out, FW, FH, 3, 3);
+         int[] glass = reduce(out, GW, GH, 2, 2);
+-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
++        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null, null, null);
+     }
+ 
+     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
+@@ -179,7 +186,44 @@ final class Backdrop {
+     }
+ 
+     /**
+-     * Day look, like tvOS 26: lighter than the photo but keeping its color and its gradient. The photo's colors are
++     * Day look: the photo's hue at a high lightness, like the pastel backgrounds of tvOS 26. Mixing with white (see
++     * lighten) washes the color out in proportion; here the lightness is set directly (0.76 to 0.94, brighter where the
++     * photo is brighter, so its gradient stays) and the saturation is lifted (more for muted colors than for vivid
++     * ones, and capped so it never turns neon). The dark text (1D1D1F and 6E6E73) keeps its contrast: the result is
++     * never darker than about 0.76 lightness.
++     */
++    private static int[] pastel(int[] px) {
++        for (int i = 0; i < px.length; i++) {
++            int p = px[i];
++            float r = ((p >> 16) & 255) / 255f, g = ((p >> 8) & 255) / 255f, b = (p & 255) / 255f;
++            float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
++            float l = (max + min) / 2, d = max - min;
++            float s = d < 1e-4f ? 0 : d / (1 - Math.abs(2 * l - 1));
++            float hue = 0;
++            if (d >= 1e-4f) {
++                if (max == r) hue = ((g - b) / d) % 6;
++                else if (max == g) hue = (b - r) / d + 2;
++                else hue = (r - g) / d + 4;
++                if (hue < 0) hue += 6;
++            }
++            float ls = 0.76f + 0.18f * Math.max(0, Math.min(1, l));
++            float ss = Math.min(0.82f, (1 - (float) Math.pow(1 - Math.min(1, s), 1.8)) * 0.9f);
++            // HSL → RGB
++            float c = (1 - Math.abs(2 * ls - 1)) * ss, x = c * (1 - Math.abs(hue % 2 - 1)), m = ls - c / 2;
++            float rr, gg, bb;
++            if (hue < 1) { rr = c; gg = x; bb = 0; }
++            else if (hue < 2) { rr = x; gg = c; bb = 0; }
++            else if (hue < 3) { rr = 0; gg = c; bb = x; }
++            else if (hue < 4) { rr = 0; gg = x; bb = c; }
++            else if (hue < 5) { rr = x; gg = 0; bb = c; }
++            else { rr = c; gg = 0; bb = x; }
++            px[i] = 0xFF000000 | (Math.round((rr + m) * 255) << 16) | (Math.round((gg + m) * 255) << 8) | Math.round((bb + m) * 255);
++        }
++        return px;
++    }
++
++    /**
++     * Previous day look (kept for reference, no longer used): lighter than the photo but keeping its color and its gradient. The photo's colors are
+      * saturated a little, then mixed with white: dark areas get more white (so the dark text reads), bright ones keep
+      * more of their color. A flat 82 % of white (the old look) erased the photo's gradient.
+      */
+diff --git a/app/src/io/freemytv/HomeApps.java b/app/src/io/freemytv/HomeApps.java
+index f99dc7f..628d484 100644
+--- a/app/src/io/freemytv/HomeApps.java
++++ b/app/src/io/freemytv/HomeApps.java
+@@ -111,6 +111,17 @@ final class HomeApps {
+             "com.disney.starplus",                  // Star+ (merged into Disney+)
+             "com.tcl.exhibit"));                    // TCL: T-Exhibition
+ 
++    /**
++     * Own icons: a picture (png, jpg, jpeg or webp) in the app's own folder, named after the app's package:
++     * /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png. It replaces that app's icon on the shelf and
++     * under it. The picture is center-cropped to the tile's shape (5:3 on the shelf, 16:9 under it); a 5:3 picture
++     * (for example 1500 × 900) fits the shelf without losing anything. Remove the file and the original icon returns.
++     */
++    private static final String[] ICON_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"};
++    /** Size of an own icon on the shelf (5:3, big enough for the focused tile at 4K). */
++    static final int SHELF_ICON_W = 540, SHELF_ICON_H = 324;
++    private static final Map<String, Bitmap> OWN = new HashMap<>();    // "file|WxH|modified" → ready icon
++
+     private static final Map<String, Bitmap> TILES = new HashMap<>();   // key → ready card
+     private static final Map<String, Bitmap> LOGOS = new HashMap<>();   // key → colored logo with no background
+ 
+@@ -144,11 +155,73 @@ final class HomeApps {
+                 it.logoDark = ownLogoCached(c, d[0] + "-dark");
+                 it.logoScale = Float.parseFloat(d[5]);
+             }
++            // The person's own picture for this app, if there is one in the icons folder.
++            Bitmap own = ownIcon(c, pkg, it.key, SHELF_ICON_W, SHELF_ICON_H);
++            if (own != null) {
++                it.tile = own;
++                it.logo = null;
++                it.logoDark = null;
++            }
+             items.add(it);
+         }
+         return items;
+     }
+ 
++    /** The folder for own icons (created if missing); null when the TV has no app storage. */
++    static File iconsDir(Context c) {
++        File dir = c.getExternalFilesDir("icons");
++        if (dir != null && !dir.exists()) dir.mkdirs();
++        return dir;
++    }
++
++    /** The person's own icon for an app (by package, or by key such as "netflix"), cropped to w × h; null if none. */
++    private static synchronized Bitmap ownIcon(Context c, String pkg, String key, int w, int h) {
++        File dir = iconsDir(c);
++        if (dir == null || !dir.isDirectory()) return null;
++        String[] names = key == null || key.equals(pkg) ? new String[] {pkg} : new String[] {pkg, key};
++        File file = null;
++        for (String name : names) {
++            for (String ext : ICON_EXTENSIONS) {
++                File f = new File(dir, name + ext);
++                if (f.isFile() && f.length() > 0) {
++                    file = f;
++                    break;
++                }
++            }
++            if (file != null) break;
++        }
++        if (file == null) return null;
++        String prefix = file.getPath() + "|" + w + "x" + h + "|", cacheKey = prefix + file.lastModified();
++        Bitmap cached = OWN.get(cacheKey);
++        if (cached != null) return cached;
++        try {
++            BitmapFactory.Options bounds = new BitmapFactory.Options();
++            bounds.inJustDecodeBounds = true;
++            BitmapFactory.decodeFile(file.getPath(), bounds);
++            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
++            BitmapFactory.Options opts = new BitmapFactory.Options();
++            opts.inSampleSize = 1;
++            while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
++            Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
++            if (src == null) return null;
++            // Center-crop to the tile's shape, then scale to the exact size.
++            float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
++            int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
++            int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
++            Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
++            Bitmap icon = Bitmap.createScaledBitmap(crop, w, h, true);
++            if (crop != src) src.recycle();
++            if (icon != crop) crop.recycle();
++            if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
++            icon.setHasMipMap(true);
++            OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
++            OWN.put(cacheKey, icon);
++            return icon;
++        } catch (RuntimeException | OutOfMemoryError e) {
++            return null;
++        }
++    }
++
+     private static String[] known(String pkg) {
+         for (String[] d : SHELF) if (d[2].equals(pkg)) return d;
+         return null;
+@@ -164,6 +237,17 @@ final class HomeApps {
+         return out;
+     }
+ 
++    /** The packages the shelf really shows right now: the first MAX_SHELF of its list that can be opened. */
++    static Set<String> onShelf(Context c) {
++        PackageManager pm = c.getPackageManager();
++        Set<String> shown = new HashSet<>();
++        for (String pkg : shelfPackages(c)) {
++            if (shown.size() >= MAX_SHELF) break;
++            if (launchIntent(pm, pkg) != null) shown.add(pkg);
++        }
++        return shown;
++    }
++
+     /** Every app the shelf could hold, as {package, name}: the ones from SHELF first, then the other TV apps by name. */
+     static List<String[]> shelfCandidates(Context c) {
+         PackageManager pm = c.getPackageManager();
+@@ -324,9 +408,9 @@ final class HomeApps {
+     static List<Item> others(Context c) {
+         PackageManager pm = c.getPackageManager();
+         Set<String> skip = new HashSet<>();
+-        // A built-in app is skipped only while it is on the shelf: one the person took off must still be listed here.
+-        List<String> onShelf = shelfPackages(c);
+-        for (String[] d : SHELF) if (onShelf.contains(d[2])) skip.add(d[2]);
++        // An app is skipped only while it is on the shelf (any app, built-in or picked in Settings > Shelf): one the
++        // person takes off the shelf comes back here, with the rest.
++        skip.addAll(onShelf(c));
+         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
+         skip.add(c.getPackageName());
+         skip.addAll(HIDDEN);
+@@ -341,7 +425,8 @@ final class HomeApps {
+             it.pkg = pkg;
+             it.key = pkg;
+             it.label = String.valueOf(ri.loadLabel(pm));
+-            it.tile = appTile(c, null, pkg, 0);
++            Bitmap own = ownIcon(c, pkg, pkg, TILE_W, TILE_H);
++            it.tile = own != null ? own : appTile(c, null, pkg, 0);
+             items.add(it);
+         }
+         Collections.sort(items, (a, b) -> a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT)));
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 64962d2..7ffe1fb 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -227,7 +227,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     // Apps under the shelf: the grid, then the drawer's row and widgets. The open drawer scrolls (dscroll, in 1080p px).
+     private Spring[] appFocus = new Spring[0];
+     private RectF[] appRects = new RectF[0];
+-    private String[] appLabels;
+     private int appIndex;
+     private final Spring dscroll = new Spring(0.34f, 1f, 0);
+     private final RectF openRect = new RectF();
+@@ -363,14 +362,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             long now = SystemClock.uptimeMillis();
+             boolean busy = sheetOpen || drawerOpen || reordering || (zone == Z_CARDS && now - keyAt < CAROUSEL_PAUSE_MS);
+             if (!cards.isEmpty() && !busy && now - carouselAt >= CAROUSEL_MS - 500) {
+-                if (cardIndex + 1 >= cards.size()) {
+-                    cardIndex = 0;
+-                    carousel.snap(0);      // back to the start: the background cross-fades, the cards don't sweep back
+-                    carouselAt = now;
+-                    cardsMoved();
+-                } else {
+-                    setCard(cardIndex + 1);
+-                }
++                setCard(cardIndex + 1);     // after the last title comes the first one again
+             }
+             handler.postDelayed(this, CAROUSEL_MS);
+         }
+@@ -514,10 +506,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     /** The three corner buttons, with their names in the current language. */
+     private void makeLightButtons() {
+         lightButtons.clear();
+-        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
+-                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
++        // Left to right: FreeTV settings, then Android settings (the last one sits at the right edge).
+         lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings",
+                 Ui.tr("Ajustes do FreeTV", "FreeTV Settings", "Ajustes de FreeTV"), "settings"));
++        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
++                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
+     }
+ 
+     private static String[] tabs() {
+@@ -1591,16 +1584,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+     }
+ 
+-    /** The apps that are not on the shelf, in rows under it: 16:9 tiles; the focused one grows and shows its name. */
++    /** The apps that are not on the shelf, in rows under it: 16:9 tiles; the focused one grows. */
+     private void drawApps(Canvas c) {
+         int n = Math.min(others.size(), appRects.length);
+         if (n == 0) return;
+-        if (appLabels == null || appLabels.length != n) {
+-            appLabels = new String[n];
+-            for (int i = 0; i < n; i++) {
+-                appLabels[i] = TextUtils.ellipsize(others.get(i).label, gridLabel, appRects[i].width() + 24 * k, TextUtils.TruncateAt.END).toString();
+-            }
+-        }
+         int top = -1;
+         for (int i = 0; i < n; i++) if (appFocus[i].value > 0.02f && (top < 0 || appFocus[i].value > appFocus[top].value)) top = i;
+         for (int i = 0; i < n; i++) if (i != top) drawAppTile(c, i);
+@@ -1610,11 +1597,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private void drawAppTile(Canvas c, int i) {
+         float f = appFocus[i].value;
+         RectF base = appRects[i];
++        // No name under the icon (the icons are the apps' own art, or a picture you chose); TalkBack still reads it.
+         drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, f, 0.08f);
+-        if (f > 0.02f) {
+-            gridLabel.setColor(drawerInk(Ui.clamp(f)));
+-            c.drawText(appLabels[i], base.centerX(), base.bottom + (40 + 6 * Ui.clamp(f)) * k, gridLabel);
+-        }
+     }
+ 
+     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
+@@ -1860,7 +1844,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             appFocus[i] = new Spring(0.3f, 0.82f, 0);
+             appRects[i] = new RectF();
+         }
+-        appLabels = null;
+         appIndex = Math.min(appIndex, Math.max(0, list.size() - 1));
+         if (list.isEmpty() && zone == Z_APPS) zone = drawerOpen ? Z_DRAWER : Z_SHELF;
+         layoutDrawer();
+@@ -2572,7 +2555,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             return;
+         }
+         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
+-        for (int i = 0; i < Math.min(3, cards.size() - cardIndex); i++) out.add(a11yId(Z_CARDS, i));
++        for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
+         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
+         for (int i = 0; i < others.size(); i++) out.add(a11yId(Z_APPS, i));
+         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
+@@ -2589,7 +2572,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             case Z_TOP:
+                 if (i >= 3) return label(lightButtons, i - 3);
+                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
+-            case Z_CARDS: return cardIndex + i < cards.size() ? pickText(cards.get(cardIndex + i)) : "";
++            case Z_CARDS: return i < Math.min(3, cards.size()) ? pickText(cards.get((cardIndex + i) % cards.size())) : "";
+             case Z_SHELF:
+                 if (reordering && i == shelfIndex) {
+                     return Ui.tr("Movendo ", "Moving ", "Moviendo ") + label(shelf, i)
+@@ -2626,7 +2609,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 dy = (i < 3 ? heroLayer : status).getTranslationY();
+                 break;
+             case Z_CARDS:
+-                if (i >= Math.min(3, cards.size() - cardIndex)) return false;
++                if (i >= Math.min(3, cards.size())) return false;
+                 a11yRect.set(cardRects[i]);
+                 dy = heroLayer.getTranslationY();
+                 break;
+@@ -2725,7 +2708,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 if (i < 3) selectTab(i);
+                 break;
+             case Z_CARDS:
+-                if (cardIndex + i >= cards.size()) return;
++                if (i >= cards.size()) return;
+                 if (drawerOpen) closeDrawer();
+                 setCard(cardIndex + i);
+                 break;
+@@ -2821,8 +2804,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             int at = -1;
+             for (int i = 0; keep != null && i < list.size(); i++) if (Recs.key(list.get(i)).equals(keep)) at = i;
+             cardIndex = at >= 0 ? at : Math.min(cardIndex, Math.max(0, list.size() - 1));
+-            carousel.target = cardIndex;
+-            if (at < 0) carousel.snap(cardIndex);
++            carousel.snap(cardIndex);
+             if (zone == Z_CARDS && list.isEmpty()) {
+                 zone = Z_SHELF;
+                 retarget(false);
+@@ -2833,8 +2815,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     /** The card at the left changed (or the list did): its details and the ones next to it are made ready; the background follows. */
+     private void cardsMoved() {
+-        int from = Math.max(0, cardIndex - 1), to = Math.min(cards.size(), cardIndex + 7);
+-        List<Recs.Pick> window = new ArrayList<>(cards.subList(from, Math.max(from, to)));
++        // The titles around the one at the left, going round the end of the list (it is endless).
++        List<Recs.Pick> window = new ArrayList<>();
++        for (int i = -1; i < 7 && window.size() < cards.size(); i++) window.add(cards.get(Math.floorMod(cardIndex + i, cards.size())));
+         recs.ensure(window);
+         for (Recs.Pick p : window) if (p.detailed) recs.backdrop(p);
+         Recs.Pick current = cards.isEmpty() ? null : cards.get(cardIndex);
+@@ -2846,11 +2829,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     /** The carousel goes to a card (the arrows, TalkBack or the automatic advance). */
+     private void setCard(int index) {
+-        if (cards.isEmpty()) return;
+-        index = Math.max(0, Math.min(cards.size() - 1, index));
++        int n = cards.size();
++        if (n == 0) return;
++        index = Math.floorMod(index, n);
+         if (index == cardIndex) return;
++        // Endless: the position keeps growing (or shrinking) and the title shown is the position modulo the list, so
++        // from the last title one step goes on to the first, the short way round.
++        int delta = index - cardIndex;
++        if (delta > n / 2) delta -= n;
++        else if (delta < -n / 2) delta += n;
+         cardIndex = index;
+-        carousel.target = index;
++        carousel.target += delta;
++        float lap = (float) Math.floor(carousel.target / n) * n;     // whole laps change nothing on screen: keep the numbers small
++        if (lap != 0) {
++            carousel.value -= lap;
++            carousel.target -= lap;
++        }
+         carouselAt = SystemClock.uptimeMillis();
+         wake();
+         cardsMoved();
+@@ -2991,10 +2985,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             return;
+         }
+         float pos = carousel.value;
+-        int first = Math.max(0, (int) Math.floor(pos) - 1), last = Math.min(n - 1, (int) Math.floor(pos) + 4);
+-        int front = Math.max(0, Math.min(n - 1, Math.round(pos)));
+-        for (int j = first; j <= last; j++) if (j != front) drawCarouselCard(c, j, j - pos);
+-        if (front >= first && front <= last) drawCarouselCard(c, front, front - pos);
++        // `j` is a position on the endless strip; the title is j modulo the list (and never the same one twice at once).
++        int first = (int) Math.floor(pos) - 1, last = Math.min((int) Math.floor(pos) + 4, first + n - 1);
++        int front = Math.round(pos);
++        for (int j = first; j <= last; j++) if (j != front) drawCarouselCard(c, Math.floorMod(j, n), j - pos);
++        if (front >= first && front <= last) drawCarouselCard(c, Math.floorMod(front, n), front - pos);
+     }
+ 
+     private void drawCarouselCard(Canvas c, int j, float rel) {
+@@ -3133,9 +3128,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 break;
+             case Z_CARDS:
+                 if (dx != 0) {
+-                    int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
+-                    if (next == cardIndex) return true;
+-                    setCard(next);
++                    if (cards.size() < 2) return true;
++                    setCard(cardIndex + dx);     // endless: → on the last title goes to the first, ← on the first to the last
+                 } else if (dy < 0) {
+                     zone = Z_TOP;
+                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
+@@ -3151,13 +3145,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                     topIndex = next;
+                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
+                 } else if (dy > 0) {
+-                    if (cards.isEmpty()) {
++                    if (topIndex >= 3 && picksOn()) {
++                        topIndex = tab;         // from the buttons at the top right, back down to the tabs
++                    } else if (cards.isEmpty()) {
+                         zone = Z_SHELF;
+                     } else {
+                         zone = Z_CARDS;
+                     }
+                 } else {
+-                    return true;
++                    if (topIndex >= 3 || !picksOn()) return true;    // already at the top
++                    topIndex = 3;               // ↑ on Explore, Movies or Shows: to the buttons at the top right
+                 }
+                 break;
+             default:

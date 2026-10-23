@@ -1,0 +1,807 @@
+diff --git a/app/src/io/freemytv/Backdrop.java b/app/src/io/freemytv/Backdrop.java
+index 493013c..da313b1 100644
+--- a/app/src/io/freemytv/Backdrop.java
++++ b/app/src/io/freemytv/Backdrop.java
+@@ -61,9 +61,9 @@ final class Backdrop {
+             // Light design: everything comes from the photo without scrims.
+             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+             int[] frost = reduce(out, FW, FH, 3, 3);
+-            int[] light = whiten(frost.clone(), 0.82f);
++            int[] light = lighten(frost.clone(), 0.40f, 0.32f, 1.5f);
+             int[] glass = reduce(out, GW, GH, 2, 2);
+-            int[] lightGlass = whiten(glass.clone(), 0.74f);
++            int[] lightGlass = lighten(glass.clone(), 0.50f, 0.28f, 1.3f);
+             int[] night = darken(frost.clone(), 0.76f);
+             int[] nightGlass = darken(glass, 0.56f);
+             out.recycle();
+@@ -178,13 +178,25 @@ final class Backdrop {
+         return px;
+     }
+ 
+-    private static int[] whiten(int[] px, float amount) {
++    /**
++     * Day look, like tvOS 26: lighter than the photo but keeping its color and its gradient. The photo's colors are
++     * saturated a little, then mixed with white: dark areas get more white (so the dark text reads), bright ones keep
++     * more of their color. A flat 82 % of white (the old look) erased the photo's gradient.
++     */
++    private static int[] lighten(int[] px, float base, float range, float saturation) {
+         for (int i = 0; i < px.length; i++) {
+             int p = px[i];
+-            int r = Math.round(((p >> 16) & 255) * (1 - amount) + 255 * amount);
+-            int g = Math.round(((p >> 8) & 255) * (1 - amount) + 255 * amount);
+-            int b = Math.round((p & 255) * (1 - amount) + 255 * amount);
+-            px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
++            float r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
++            float luma = (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255f;
++            float gray = luma * 255f;
++            r = gray + (r - gray) * saturation;
++            g = gray + (g - gray) * saturation;
++            b = gray + (b - gray) * saturation;
++            float white = base + range * (1 - luma);
++            int rr = Math.round(Math.max(0, Math.min(255, r)) * (1 - white) + 255 * white);
++            int gg = Math.round(Math.max(0, Math.min(255, g)) * (1 - white) + 255 * white);
++            int bb = Math.round(Math.max(0, Math.min(255, b)) * (1 - white) + 255 * white);
++            px[i] = 0xFF000000 | (rr << 16) | (gg << 8) | bb;
+         }
+         return px;
+     }
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 7585171..64962d2 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -48,8 +48,9 @@ import java.util.function.Consumer;
+  *  - at the top left, the "For You" title and the tabs (Explore, Movies, Shows); at the top right, icon-only glass
+  *    buttons (Android Settings, FreeTV Settings), with the focused one's name below it, and the small crypto quotes
+  *    (logo + price) at the right end of the tab row;
+- *  - three cards with the titles recommended for right now in the selected tab (Recs, from TMDB); the background is
+- *    the first card's photo, heavily blurred and almost white (Backdrop); without one, a light gradient;
++ *  - a carousel (25+ titles, renewed every 12 hours) of the selected tab (Recs, from TMDB), moving by itself; the background is
++ *    the photo of the card at the left, heavily blurred and lightened but keeping its colors (Backdrop); without one,
++ *    a light gradient;
+  *  - at the bottom, the glass shelf with the apps (icons in each brand's color, like the tvOS Dock; the focused one
+  *    grows);
+  *  - ↓ on the shelf (up to 7 apps): everything moves up and the bottom drawer appears: the rest of the apps in a
+@@ -150,7 +151,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private final Spring[] topFocus = new Spring[3 + BUTTONS];
+     private final RectF[] topRects = new RectF[3 + BUTTONS];
+     private final Spring[] cardFocus = new Spring[3];
+-    private final RectF[] cardRects = new RectF[3];
++    private final RectF[] cardRects = new RectF[3];   // the three resting slots (wide, tall, tall)
++    // Carousel: all of the tab's titles (25 or more) in a row. The card at the left is the big one and the focused one;
++    // it moves to the next by itself every CAROUSEL_MS (the position is a spring, in card units).
++    private static final long CAROUSEL_MS = 9000, CAROUSEL_PAUSE_MS = 20000;
++    private final Spring carousel = new Spring(0.55f, 0.9f, 0);
++    private long carouselAt, keyAt;
++    private final android.graphics.Rect cropRect = new android.graphics.Rect();
++    private final RectF cropCell = new RectF();
+     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
+     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
+     private Shader lightGradient;
+@@ -348,6 +356,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         handler.postDelayed(reloadSoon, 500);
+     }
+ 
++    /** Every CAROUSEL_MS the carousel goes to the next title (and back to the first after the last). */
++    private final Runnable advance = new Runnable() {
++        @Override public void run() {
++            if (!running) return;
++            long now = SystemClock.uptimeMillis();
++            boolean busy = sheetOpen || drawerOpen || reordering || (zone == Z_CARDS && now - keyAt < CAROUSEL_PAUSE_MS);
++            if (!cards.isEmpty() && !busy && now - carouselAt >= CAROUSEL_MS - 500) {
++                if (cardIndex + 1 >= cards.size()) {
++                    cardIndex = 0;
++                    carousel.snap(0);      // back to the start: the background cross-fades, the cards don't sweep back
++                    carouselAt = now;
++                    cardsMoved();
++                } else {
++                    setCard(cardIndex + 1);
++                }
++            }
++            handler.postDelayed(this, CAROUSEL_MS);
++        }
++    };
++
+     private final Runnable tick = new Runnable() {
+         @Override public void run() {
+             if (!running) return;
+@@ -357,7 +385,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             checkNotices();
+             updatePalette();
+             checkNight(true);
+-            updatePicks();      // three new ones every hour
++            updatePicks();      // the lists change every 12 hours; details and images arrive as they are ready
+             handler.postDelayed(this, 15_000);
+         }
+     };
+@@ -425,6 +453,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         recs.refreshIfStale();
+         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
+         handler.postDelayed(tick, 15_000);
++        handler.postDelayed(advance, CAROUSEL_MS);
+         checkNotices();
+         reload();
+         updatePalette();
+@@ -446,6 +475,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         okHeld = holdArmed = false;
+         Choreographer.getInstance().removeFrameCallback(this);
+         handler.removeCallbacks(tick);
++        handler.removeCallbacks(advance);
+         handler.removeCallbacks(reloadSoon);
+         data.removeListener(this);
+         recs.removeListener(this);
+@@ -654,7 +684,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
+         boolean statusMoving = step(statusFocus, dt);
+         boolean heroMoving = heroFocus.step(dt);
+-        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
++        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | carousel.step(dt);
+         if (topMoving) status.invalidate();
+         heroMoving |= topMoving | cardsMoving;
+         boolean drawerItemsMoving = step(drawerFocus, dt) | step(appFocus, dt);
+@@ -1340,12 +1370,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+      * a 49 ms frame), so there the image is the shader of a rounded rectangle instead, which looks the same.
+      */
+     private void roundImage(Canvas c, Bitmap image, RectF cell, float r) {
++        roundImage(c, image, null, cell, r);
++    }
++
++    /** The part `src` of the image (all of it when null) in a rounded rectangle. */
++    private void roundImage(Canvas c, Bitmap image, android.graphics.Rect src, RectF cell, float r) {
+         if (!Ui.LEGACY) {
+             clip.reset();
+             clip.addRoundRect(cell, r, r, Path.Direction.CW);
+             c.save();
+             c.clipPath(clip);
+-            c.drawBitmap(image, null, cell, bitmapPaint);
++            c.drawBitmap(image, src, cell, bitmapPaint);
+             c.restore();
+             return;
+         }
+@@ -1354,7 +1389,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             shader = new BitmapShader(image, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+             imageShaders.put(image, shader);
+         }
+-        imageMatrix.setScale(cell.width() / image.getWidth(), cell.height() / image.getHeight());
++        float sw = src == null ? image.getWidth() : src.width(), sh = src == null ? image.getHeight() : src.height();
++        imageMatrix.setScale(cell.width() / sw, cell.height() / sh);
++        if (src != null) imageMatrix.preTranslate(-src.left, -src.top);
+         imageMatrix.postTranslate(cell.left, cell.top);
+         shader.setLocalMatrix(imageMatrix);
+         imageFill.setShader(shader);
+@@ -1416,9 +1453,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     // MARK: - Bottom drawer
+ 
+     private static List<HomeApps.Item> drawerList(Context c) {
+-        List<HomeApps.Item> list = HomeApps.allInputs(c);
+-        list.addAll(HomeApps.drawerShortcuts());
+-        return list;
++        return HomeApps.allInputs(c);   // Live TV and HDMI inputs; the shortcuts are the two buttons at the top now
+     }
+ 
+     private void setDrawerItems(List<HomeApps.Item> list) {
+@@ -1459,7 +1494,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         }
+         rowTopY = rows == 0 ? ROW_TOP : APPS_TOP + (rows - 1) * APPS_PITCH + ah / k + SECTION_GAP;
+         titleY = rowTopY - (ROW_TOP - ROW_TITLE);
+-        cardsTopY = rowTopY + (CARDS_TOP - ROW_TOP);
++        cardsTopY = n == 0 ? rowTopY : rowTopY + (CARDS_TOP - ROW_TOP);   // no inputs: the widgets come right after the apps
+         scrollBottom = rows == 0 ? 0 : Math.max(0, cardsTopY + CARDS_H - 1030);
+         float layerH = cardsTopY + CARDS_H + 62 - LAYER_TOP;
+         if (Math.abs(layerH - drawerH) > 0.5f) {
+@@ -1535,7 +1570,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     }
+ 
+     private void drawDrawer(Canvas c) {
+-        if (drawerItems.isEmpty()) return;
+         rowTitle.setColor(tone(L_DIM, 0xB3FFFFFF));
+         cardTitle.setColor(tone(L_DIM, 0xB3FFFFFF));
+         cardText.setColor(drawerInk(0.95f));
+@@ -1776,7 +1810,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         drawerChanged |= aim(appFocus, !sheetOpen && zone == Z_APPS ? appIndex : -1, snap);
+         float want = 0;
+         if (drawerOpen && !sheetOpen) {
+-            if (zone == Z_APPS) want = appIndex / APPS_COLS == 0 ? 0 : APPS_PITCH * (appIndex / APPS_COLS) - 20;
++            if (zone == Z_APPS) {
++                int row = appIndex / APPS_COLS;
++                want = row == 0 ? 0 : APPS_PITCH * row - 20;
++                if (drawerItems.isEmpty() && row == (others.size() - 1) / APPS_COLS) want = Math.max(want, scrollBottom);
++            }
+             else if (zone == Z_DRAWER || zone == WIDGETS) want = scrollBottom;
+         }
+         dscroll.target = want;
+@@ -1785,7 +1823,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         heroFocus.target = !sheetOpen && zone == Z_HERO ? 1 : 0;
+         if (snap) heroFocus.snap(heroFocus.target);
+         boolean topChanged = aim(topFocus, !sheetOpen && zone == Z_TOP ? topIndex : -1, snap);
+-        heroChanged |= aim(cardFocus, !sheetOpen && zone == Z_CARDS ? cardIndex : -1, snap) | topChanged;
++        heroChanged |= aim(cardFocus, !sheetOpen && zone == Z_CARDS ? 0 : -1, snap) | topChanged;
+         statusChanged |= topChanged;
+         tilesDirty |= snap || tilesChanged;
+         statusDirty |= snap || statusChanged;
+@@ -2017,8 +2055,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         LOADER.execute(() -> {
+             final List<HomeApps.Item> s = HomeApps.shelf(c, true);
+             final List<HomeApps.Item> st = statusList(c);
+-            final List<HomeApps.Item> d = drawerList(c);
+             final List<HomeApps.Item> o = HomeApps.others(c);
++            // No inputs and no other apps: the drawer would be empty and the widgets out of reach, so it keeps the shortcuts.
++            final List<HomeApps.Item> d = drawerList(c).isEmpty() && o.isEmpty() ? HomeApps.drawerShortcuts() : drawerList(c);
+             handler.post(() -> {
+                 setShelf(s);
+                 setStatusItems(st);
+@@ -2032,6 +2071,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     boolean onKey(KeyEvent e) {
+         wake();
++        keyAt = SystemClock.uptimeMillis();
+         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+         if (reordering) return reorderKey(e, down);
+         int code = e.getKeyCode();
+@@ -2306,7 +2346,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
+             if (p == null || p.pkg == null) return;
+             it = HomeApps.app(p.pkg, Recs.serviceName(p));
+-            r = cardRects[cardIndex];
++            r = cardRects[0];
+         } else {
+             if (shelf.isEmpty()) return;
+             it = shelf.get(shelfIndex);
+@@ -2532,7 +2572,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             return;
+         }
+         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
+-        for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
++        for (int i = 0; i < Math.min(3, cards.size() - cardIndex); i++) out.add(a11yId(Z_CARDS, i));
+         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
+         for (int i = 0; i < others.size(); i++) out.add(a11yId(Z_APPS, i));
+         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
+@@ -2549,7 +2589,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             case Z_TOP:
+                 if (i >= 3) return label(lightButtons, i - 3);
+                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
+-            case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
++            case Z_CARDS: return cardIndex + i < cards.size() ? pickText(cards.get(cardIndex + i)) : "";
+             case Z_SHELF:
+                 if (reordering && i == shelfIndex) {
+                     return Ui.tr("Movendo ", "Moving ", "Moviendo ") + label(shelf, i)
+@@ -2586,7 +2626,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 dy = (i < 3 ? heroLayer : status).getTranslationY();
+                 break;
+             case Z_CARDS:
+-                if (i >= Math.min(3, cards.size())) return false;
++                if (i >= Math.min(3, cards.size() - cardIndex)) return false;
+                 a11yRect.set(cardRects[i]);
+                 dy = heroLayer.getTranslationY();
+                 break;
+@@ -2625,7 +2665,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (sheetOpen) return others.isEmpty() ? -1 : a11yId(GRID, gridIndex);
+         switch (zone) {
+             case Z_TOP: return a11yId(Z_TOP, topIndex);
+-            case Z_CARDS: return cardIndex < cards.size() ? a11yId(Z_CARDS, cardIndex) : -1;
++            case Z_CARDS: return cardIndex < cards.size() ? a11yId(Z_CARDS, 0) : -1;
+             case Z_SHELF: return shelf.isEmpty() ? -1 : a11yId(Z_SHELF, shelfIndex);
+             case Z_APPS: return others.isEmpty() ? -1 : a11yId(Z_APPS, appIndex);
+             case Z_DRAWER: return drawerItems.isEmpty() ? -1 : a11yId(Z_DRAWER, drawerIndex);
+@@ -2685,9 +2725,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 if (i < 3) selectTab(i);
+                 break;
+             case Z_CARDS:
+-                if (i >= cards.size()) return;
++                if (cardIndex + i >= cards.size()) return;
+                 if (drawerOpen) closeDrawer();
+-                cardIndex = i;
++                setCard(cardIndex + i);
+                 break;
+             case Z_SHELF:
+                 if (i >= shelf.size()) return;
+@@ -2772,27 +2812,56 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         heroDirty = statusDirty = true;
+     }
+ 
+-    /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
++    /** The carousel of the current tab (Explore, Movies, Shows): its titles, and the background of the one at the left. */
+     private void updateCards() {
+-        List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
++        List<Recs.Pick> list = recs.carousel(TAB_KIND[tab]);
+         if (!samePicks(list, cards)) {
++            String keep = cardIndex < cards.size() ? Recs.key(cards.get(cardIndex)) : null;
+             cards = list;
+-            cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
++            int at = -1;
++            for (int i = 0; keep != null && i < list.size(); i++) if (Recs.key(list.get(i)).equals(keep)) at = i;
++            cardIndex = at >= 0 ? at : Math.min(cardIndex, Math.max(0, list.size() - 1));
++            carousel.target = cardIndex;
++            if (at < 0) carousel.snap(cardIndex);
+             if (zone == Z_CARDS && list.isEmpty()) {
+                 zone = Z_SHELF;
+                 retarget(false);
+             }
+         }
+-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
+-        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(0));
++        cardsMoved();
++    }
++
++    /** The card at the left changed (or the list did): its details and the ones next to it are made ready; the background follows. */
++    private void cardsMoved() {
++        int from = Math.max(0, cardIndex - 1), to = Math.min(cards.size(), cardIndex + 7);
++        List<Recs.Pick> window = new ArrayList<>(cards.subList(from, Math.max(from, to)));
++        recs.ensure(window);
++        for (Recs.Pick p : window) if (p.detailed) recs.backdrop(p);
++        Recs.Pick current = cards.isEmpty() ? null : cards.get(cardIndex);
++        Backdrop b = current != null && current.detailed ? recs.backdrop(current) : null;
+         if (cards.isEmpty() || b != null) showBackdrop(b);
+         heroDirty = true;
+-        spoken.focusMoved();    // new picks under the focused card
++        spoken.focusMoved();
++    }
++
++    /** The carousel goes to a card (the arrows, TalkBack or the automatic advance). */
++    private void setCard(int index) {
++        if (cards.isEmpty()) return;
++        index = Math.max(0, Math.min(cards.size() - 1, index));
++        if (index == cardIndex) return;
++        cardIndex = index;
++        carousel.target = index;
++        carouselAt = SystemClock.uptimeMillis();
++        wake();
++        cardsMoved();
+     }
+ 
+     private void selectTab(int index) {
+         if (index == tab) return;
+         tab = index;
++        cardIndex = 0;
++        carousel.snap(0);
++        carouselAt = SystemClock.uptimeMillis();
+         updateCards();
+         heroDirty = true;
+     }
+@@ -2806,7 +2875,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
+         boolean fading = bgFadeAt != 0;
+         // Drawer open: the background lightens (by day) or darkens (at night), as a filter on the drawing itself.
+-        android.graphics.ColorFilter v = veil(tone(0.32f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, night));
++        android.graphics.ColorFilter v = veil(tone(0.18f, 0.42f) * Ui.clamp(drawer.value), blend(0xFFFFFFFF, 0xFF000000, night));
+         if (bgTo == null || (fading && bgFrom == null)) {
+             if (lightGradient == null) lightGradient = new LinearGradient(0, 0, 0, h, 0xFFF5F5F7, 0xFFE2E2E7, Shader.TileMode.CLAMP);
+             if (nightGradient == null) nightGradient = new LinearGradient(0, 0, 0, h, 0xFF1C1C1E, 0xFF0B0B0D, Shader.TileMode.CLAMP);
+@@ -2869,10 +2938,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
+             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
+         }
+-        int top = -1;
+-        for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
+-        for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
+-        if (top >= 0) drawLightCard(c, top);
++        drawCarousel(c);
+         if (HomeData.coinCount() > 0) drawQuotes(c);
+     }
+ 
+@@ -2903,15 +2969,58 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         c.drawText(weatherLine, x + sw + 16 * k, base, lWeather);
+     }
+ 
++    /** Left edge of slot `s` of the carousel (0 = the big card, 1+ = the tall ones to its right, -1 = the one that just left). */
++    private float slotX(int s) {
++        float tall = L_TALL_W * k, g = L_CARD_GAP * k, left = MARGIN * k;
++        return s == 0 ? left : s > 0 ? left + slotW(0) + g + (s - 1) * (tall + g) : left + s * (tall + g);
++    }
++
++    private float slotW(int s) {
++        float tall = L_TALL_W * k, g = L_CARD_GAP * k;
++        return s == 0 ? (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g : tall;
++    }
++
++    /**
++     * The carousel: the card at the left is the big one, the next two are tall, and a sliver of the fourth peeks in at
++     * the right edge. A card slides from one slot to the next (it grows as it reaches the left, fades as it leaves).
++     */
++    private void drawCarousel(Canvas c) {
++        int n = cards.size();
++        if (n == 0) {
++            for (int i = 0; i < 3; i++) drawLightCard(c, null, cardRects[i], 0, i == 0 ? 1 : 0);
++            return;
++        }
++        float pos = carousel.value;
++        int first = Math.max(0, (int) Math.floor(pos) - 1), last = Math.min(n - 1, (int) Math.floor(pos) + 4);
++        int front = Math.max(0, Math.min(n - 1, Math.round(pos)));
++        for (int j = first; j <= last; j++) if (j != front) drawCarouselCard(c, j, j - pos);
++        if (front >= first && front <= last) drawCarouselCard(c, front, front - pos);
++    }
++
++    private void drawCarouselCard(Canvas c, int j, float rel) {
++        float alpha = rel < 0 ? 1 + rel : rel > 3 ? 4 - rel : 1;
++        if (alpha <= 0.01f) return;
++        int s = (int) Math.floor(rel);
++        float t = rel - s;
++        float x = slotX(s) + (slotX(s + 1) - slotX(s)) * t, w = slotW(s) + (slotW(s + 1) - slotW(s)) * t;
++        float top = L_CARDS_TOP * k, bottom = (L_CARDS_TOP + L_CARD_H) * k;
++        cropCell.set(x, top, x + w, bottom);
++        float tall = L_TALL_W * k;
++        float wide = Ui.clamp((w - tall) / (slotW(0) - tall));
++        float v = cardFocus[0].value * Math.max(0, 1 - Math.abs(rel));   // the focus follows the card at the left
++        boolean fade = alpha < 0.99f;
++        if (fade) c.saveLayerAlpha(x - 60 * k, top - 60 * k, x + w + 60 * k, bottom + 140 * k, Math.round(255 * alpha));
++        drawLightCard(c, cards.get(j), cropCell, v, wide);
++        if (fade) c.restore();
++    }
++
+     /**
+      * Recommendation card: the title's photo (already at the focused card size, so it stays sharp), rounded corners and
+      * a soft shadow; when focused, it grows 5%, rises and lights up its border. Below it, the title (and on the large
+-     * card, genre · runtime · service).
++     * card, genre · runtime · service). `wide` is 1 for the big card and 0 for a tall one (in between while it moves).
+      */
+-    private void drawLightCard(Canvas c, int i) {
+-        RectF base = cardRects[i];
+-        Recs.Pick p = i < cards.size() ? cards.get(i) : null;
+-        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
++    private void drawLightCard(Canvas c, Recs.Pick p, RectF base, float v, float wide) {
++        float f = Ui.clamp(v), s = 1 + 0.05f * v;
+         float bw = base.width(), bh = base.height(), r0 = 18 * k;
+         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
+         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
+@@ -2924,36 +3033,42 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
+         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+         c.restore();
+-        Backdrop b = p == null ? null : recs.backdrop(p);
+-        Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
++        Backdrop b = p == null || !p.detailed ? null : recs.backdrop(p);
++        Bitmap img = b == null ? null : (cell.width() >= 1.1f * cell.height() ? b.wide : b.tall);
+         if (img != null) {
+-            roundImage(c, img, cell, r);
++            // Center-cropped to the card's shape, so a card that is growing or shrinking keeps its photo's proportions.
++            float want = cell.width() / cell.height(), have = (float) img.getWidth() / img.getHeight();
++            int sw = want < have ? Math.round(img.getHeight() * want) : img.getWidth();
++            int sh = want < have ? img.getHeight() : Math.round(img.getWidth() / want);
++            int sx = (img.getWidth() - sw) / 2, sy = (img.getHeight() - sh) / 2;
++            cropRect.set(sx, sy, sx + sw, sy + sh);
++            roundImage(c, img, cropRect, cell, r);
+         } else {
+             fill.setShader(null);
+             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
+             c.drawRoundRect(cell, r, r, fill);
+         }
+         if (f > 0.01f) {
+-            if (lightSheens.length != cardRects.length) {
+-                lightSheens = new LinearGradient[cardRects.length];
+-                lightRims = new LinearGradient[cardRects.length];
+-                lightShaderW = new float[cardRects.length];
++            if (lightSheens.length != 1) {
++                lightSheens = new LinearGradient[1];
++                lightRims = new LinearGradient[1];
++                lightShaderW = new float[1];
+             }
+-            if (lightSheens[i] == null || lightShaderW[i] != bw) {
+-                lightSheens[i] = new LinearGradient(-bw / 2, -bh / 2, 0, bh / 2, 0x38FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
+-                lightRims[i] = new LinearGradient(0, -bh / 2, 0, bh / 2, 0xE6FFFFFF, 0x59FFFFFF, Shader.TileMode.CLAMP);
+-                lightShaderW[i] = bw;
++            if (lightSheens[0] == null || Math.abs(lightShaderW[0] - bw) > 4 * k) {
++                lightSheens[0] = new LinearGradient(-bw / 2, -bh / 2, 0, bh / 2, 0x38FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
++                lightRims[0] = new LinearGradient(0, -bh / 2, 0, bh / 2, 0xE6FFFFFF, 0x59FFFFFF, Shader.TileMode.CLAMP);
++                lightShaderW[0] = bw;
+             }
+             int alpha = Math.round(255 * f);
+             c.save();
+             c.translate(cx, cy);
+             c.scale(s, s);
+             tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+-            sheen.setShader(lightSheens[i]);
++            sheen.setShader(lightSheens[0]);
+             sheen.setAlpha(alpha);
+             c.drawRoundRect(tmp, r0, r0, sheen);
+             sheen.setAlpha(255);
+-            rim.setShader(lightRims[i]);
++            rim.setShader(lightRims[0]);
+             rim.setAlpha(alpha);
+             rim.setStrokeWidth(2.5f * k / s);
+             c.drawRoundRect(tmp, r0, r0, rim);
+@@ -2964,9 +3079,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         if (p == null) return;
+         fitPaint.set(lCardTitle);
+         c.drawText(TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
+-        if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
++        if (wide > 0.5f && p.meta != null && !p.meta.isEmpty()) {
+             fitPaint.set(lCardMeta);
++            lCardMeta.setAlpha(Math.round(255 * Ui.clamp((wide - 0.5f) * 2)));
+             c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
++            lCardMeta.setAlpha(255);
+         }
+     }
+ 
+@@ -3012,20 +3129,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                     topIndex = picksOn() ? tab : 3;
+                 } else {
+                     zone = Z_CARDS;
+-                    cardIndex = nearest(cardRects, cards.size(), tileRects[shelfIndex].centerX());
+                 }
+                 break;
+             case Z_CARDS:
+                 if (dx != 0) {
+                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
+                     if (next == cardIndex) return true;
+-                    cardIndex = next;
++                    setCard(next);
+                 } else if (dy < 0) {
+                     zone = Z_TOP;
+                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
+                 } else {
+                     zone = Z_SHELF;
+-                    if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
++                    if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[0].centerX());
+                 }
+                 break;
+             case Z_TOP:
+@@ -3039,7 +3155,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                         zone = Z_SHELF;
+                     } else {
+                         zone = Z_CARDS;
+-                        cardIndex = nearest(cardRects, cards.size(), topRects[topIndex].centerX());
+                     }
+                 } else {
+                     return true;
+diff --git a/app/src/io/freemytv/Recs.java b/app/src/io/freemytv/Recs.java
+index 4df2c3a..8a8260c 100644
+--- a/app/src/io/freemytv/Recs.java
++++ b/app/src/io/freemytv/Recs.java
+@@ -36,7 +36,7 @@ import java.util.concurrent.Executors;
+ 
+ /**
+  * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, via TMDB
+- * (an open movie database that knows what streams where in each country). Three per hour and per tab.
++ * (an open movie database that knows what streams where in each country). At least 25 movies and 25 shows, renewed every 12 hours.
+  *
+  * <p>Which titles qualify: the ones TMDB lists on a known streaming service (Netflix, Prime Video, Disney+, Max, Apple
+  * TV...) in your country ({@code tmdb_region}). The service does NOT have to be installed on the TV:
+@@ -65,18 +65,16 @@ final class Recs {
+ 
+     private static final String API = "https://api.themoviedb.org/3";
+     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
+-    private static final long LIST_EVERY = 6 * 3600_000L;
++    private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
+     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
+     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
+-    private static final int CACHE_VERSION = 5;
+-
+-    /** Titles kept in the list, and how many of them come from what's trending (the rest are recent releases). */
+-    private static final int LIST_SIZE = 24, TRENDING_PER_KIND = 8, TRENDING_CANDIDATES = 20;
+-    private static final int PICKS_PER_HOUR = 3;
+-    private static final int MAX_IMAGES_ON_DISK = 24;
+-    /** Fills what trending doesn't cover with recent releases (movies of the past year, shows with a new episode). */
+-    private static final boolean INCLUDE_NEW_RELEASES = true;
++    private static final int CACHE_VERSION = 6;
+ 
++    /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
++    private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
++    private static final int TRENDING_PER_KIND = 10, TRENDING_CANDIDATES = 20;
++        private static final int MAX_IMAGES_ON_DISK = 48;
++    
+     private static final int MORNING = 0, AFTERNOON = 1, NIGHT = 2;
+     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
+     static final String[] PERIOD_LABEL_RU = {"ЭТИМ УТРОМ", "СЕГОДНЯ ДНЁМ", "СЕГОДНЯ ВЕЧЕРОМ"};
+@@ -124,7 +122,8 @@ final class Recs {
+     private final ExecutorService io = Executors.newSingleThreadExecutor();
+     private final Handler main = new Handler(Looper.getMainLooper());
+     private final List<Listener> listeners = new ArrayList<>();
+-    private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
++    private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);   // built and ready to draw (least recently drawn goes first)
++    private final Set<String> inFlight = new HashSet<>();   // picks whose details and image are being fetched
+     private final Set<String> pending = new HashSet<>();
+     private volatile List<Pick> picks = new ArrayList<>();
+     private volatile int period = -1;
+@@ -197,34 +196,46 @@ final class Recs {
+ 
+     // MARK: - What the screens ask for
+ 
+-    /** This hour's picks (the first is the featured one; the arrows switch to the others). */
+-    List<Pick> now() {
+-        return now(null);
+-    }
+-
+     /**
+-     * This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). Never two from the
+-     * same franchise ("Law & Order" and "Law & Order: Special…"). A title whose details are already known must be on a
+-     * known service in your region; it doesn't need that service to be installed.
++     * The carousel of a tab: movies only ("movie"), shows only ("tv") or both alternating (null, Explore). At least 25
++     * per kind, refreshed every 12 hours. A title whose details are already known must be on a known service in your
++     * region (it doesn't need that service to be installed).
+      */
+-    List<Pick> now(String kind) {
+-        List<Pick> pool = new ArrayList<>();
+-        if (!hasKey(context)) return pool;     // no TMDB key: no recommendations
++    List<Pick> carousel(String kind) {
++        List<Pick> out = new ArrayList<>();
++        if (!hasKey(context)) return out;     // no TMDB key: no recommendations
+         for (Pick p : picks) {
+             boolean sameKind = kind == null || kind.equals(p.kind);
+-            if (sameKind && (!p.detailed || p.app != null)) pool.add(p);
+-        }
+-        if (pool.isEmpty()) return pool;
+-        long hour = System.currentTimeMillis() / 3600_000L;
+-        List<Pick> out = new ArrayList<>();
+-        Set<String> franchises = new HashSet<>();
+-        for (int i = 0; i < pool.size() && out.size() < PICKS_PER_HOUR; i++) {
+-            Pick p = pool.get((int) ((hour * PICKS_PER_HOUR + i) % pool.size()));
+-            if (franchises.add(franchise(p.title))) out.add(p);
++            if (sameKind && (!p.detailed || p.app != null)) out.add(p);
++            if (kind == null && out.size() >= EXPLORE_MAX) break;
+         }
+         return out;
+     }
+ 
++    /**
++     * Details and image for these picks (what the carousel shows and what is next to it), one at a time in the
++     * background; the listeners hear when they are ready.
++     */
++    void ensure(List<Pick> window) {
++        if (!hasKey(context) || inBackoff(System.currentTimeMillis())) return;
++        final List<Pick> todo = new ArrayList<>();
++        synchronized (inFlight) {
++            for (Pick p : window) if (needsWork(p) && inFlight.add(key(p))) todo.add(p);
++        }
++        if (todo.isEmpty()) return;
++        io.execute(() -> {
++            try {
++                completePicks(todo);
++                save();
++            } finally {
++                synchronized (inFlight) {
++                    for (Pick p : todo) inFlight.remove(key(p));
++                }
++                notifyListeners();
++            }
++        });
++    }
++
+     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
+     private static String franchise(String title) {
+         String t = title == null ? "" : title.toLowerCase(Locale.ROOT);
+@@ -240,12 +251,13 @@ final class Recs {
+         return name == null ? "" : name;
+     }
+ 
+-    /** This hour's picks for the three tabs (Explore, Movies, Shows), without repeats. */
++    /** The first cards of the three tabs (Explore, Movies, Shows), without repeats: what the home screen opens with. */
+     List<Pick> wanted() {
+         List<Pick> out = new ArrayList<>();
+         Set<String> seen = new HashSet<>();
+         for (String kind : new String[] {null, "movie", "tv"}) {
+-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
++            List<Pick> list = carousel(kind);
++            for (int i = 0; i < Math.min(4, list.size()); i++) if (seen.add(key(list.get(i)))) out.add(list.get(i));
+         }
+         return out;
+     }
+@@ -308,7 +320,8 @@ final class Recs {
+     /** Frees memory: only Explore's picks stay (the home screen opens on that tab, so its cards are never gray). */
+     void trim() {
+         Set<String> keep = new HashSet<>();
+-        for (Pick p : now(null)) if (p.backdrop != null) keep.add(p.backdrop);
++        List<Pick> first = carousel(null);
++        for (int i = 0; i < Math.min(4, first.size()); i++) if (first.get(i).backdrop != null) keep.add(first.get(i).backdrop);
+         synchronized (images) {
+             images.keySet().retainAll(keep);
+         }
+@@ -334,7 +347,7 @@ final class Recs {
+         return failedAt != 0 && sinceFail >= 0 && sinceFail < RETRY_AFTER_FAILURE;
+     }
+ 
+-    /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
++    /** With a key: fetches the lists if they are 12 hours old (or the source changed); then the details. */
+     void refreshIfStale() {
+         if (!hasKey(context) || fetching) return;
+         long now = System.currentTimeMillis();
+@@ -342,7 +355,7 @@ final class Recs {
+         boolean newSource = stamp != keyStamp;
+         if (!newSource && inBackoff(now)) return;
+         final int currentPeriod = period(now);
+-        final boolean stale = newSource || currentPeriod != period || now - listAt > LIST_EVERY || now < listAt
++        final boolean stale = newSource || now - listAt > LIST_EVERY || now < listAt
+                 || picks.isEmpty() || !listLanguage.equals(Ui.language);
+         boolean missing = false;
+         for (Pick pick : wanted()) missing |= needsWork(pick);
+@@ -376,7 +389,7 @@ final class Recs {
+     void prefetchAll() {
+         if (!hasKey(context) || fetching || inBackoff(System.currentTimeMillis())) return;
+         final List<Pick> todo = new ArrayList<>();
+-        for (Pick p : picks) if (needsWork(p)) todo.add(p);
++        for (Pick p : picks) if (needsWork(p) && todo.size() < 30) todo.add(p);
+         if (todo.isEmpty()) return;
+         fetching = true;
+         io.execute(() -> {
+@@ -434,16 +447,7 @@ final class Recs {
+ 
+         List<Pick> list = new ArrayList<>();
+         Set<String> seen = new HashSet<>();
+-        alternate(list, seen, trending("movie"), trending("tv"), LIST_SIZE);
+-
+-        if (INCLUDE_NEW_RELEASES && list.size() < LIST_SIZE) {
+-            try {
+-                alternate(list, seen, released("movie", services), released("tv", services), LIST_SIZE);
+-            } catch (IOException | JSONException e) {
+-                // Optional extra: trending alone is a good list.
+-                AppLog.w("recommendations, new releases: " + message(e));
+-            }
+-        }
++        alternate(list, seen, kindList("movie", services), kindList("tv", services), 2 * PER_KIND);
+         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+         picks = list;
+         period = currentPeriod;
+@@ -451,6 +455,26 @@ final class Recs {
+         listLanguage = Ui.language;
+     }
+ 
++    /**
++     * Up to PER_KIND titles of one kind: what's trending this week on a known service first (their details say where),
++     * then the most popular on the region's known services (the filter itself guarantees the service).
++     */
++    private List<Pick> kindList(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
++        List<Pick> out = new ArrayList<>();
++        Set<String> seen = new HashSet<>();
++        for (Pick p : trending(kind)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
++        for (int page = 1; page <= DISCOVER_PAGES && out.size() < PER_KIND; page++) {
++            try {
++                for (Pick p : popular(kind, services, page)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
++            } catch (IOException | JSONException e) {
++                // Optional extra: what we have is a good list.
++                AppLog.w("recommendations, popular: " + message(e));
++                break;
++            }
++        }
++        return out;
++    }
++
+     /** TMDB's id → known service, for the streaming services listed in the region (installed on this TV or not). */
+     private Map<Integer, String[]> regionServices() throws IOException, JSONException {
+         Map<Integer, String[]> out = new HashMap<>();
+@@ -485,19 +509,14 @@ final class Recs {
+         return out;
+     }
+ 
+-    /**
+-     * Recent releases on the region's known services: movies from the past year and shows with a new episode in the past
+-     * 3 months. Their details (genre, runtime, image) are fetched later, only for the ones that get shown.
+-     */
+-    private List<Pick> released(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
++    /** The most popular titles on the region's known services (a page of 20). Their details are fetched later. */
++    private List<Pick> popular(String kind, Map<Integer, String[]> services, int page) throws IOException, JSONException {
+         StringBuilder ids = new StringBuilder();
+         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
+-        String when = kind.equals("movie")
+-                ? "&vote_count.gte=30&primary_release_date.gte=" + day(-365) + "&primary_release_date.lte=" + day(0)
+-                : "&vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0);
+         JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
+-                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc"
+-                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8") + when).getJSONArray("results");
++                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc&page=" + page
++                + "&vote_count.gte=" + (kind.equals("movie") ? 200 : 100)
++                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")).getJSONArray("results");
+         List<Pick> out = new ArrayList<>();
+         for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
+         return out;
+@@ -511,14 +530,6 @@ final class Recs {
+         }
+     }
+ 
+-    /** The date `offset` days from today, as "2026-10-19" (negative = in the past). */
+-    private static String day(int offset) {
+-        Calendar cal = Calendar.getInstance();
+-        cal.add(Calendar.DAY_OF_YEAR, offset);
+-        return String.format(Locale.US, "%04d-%02d-%02d",
+-                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
+-    }
+-
+     private static void add(List<Pick> list, JSONObject o, String kind) {
+         String backdrop = o.optString("backdrop_path", "");
+         if (backdrop.isEmpty() || "null".equals(backdrop)) return;
+@@ -770,7 +781,7 @@ final class Recs {
+             if (forLight != light) return;   // the design changed midway: this one is stale
+             synchronized (images) {
+                 images.put(p.backdrop, backdrop);
+-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
++                while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());
+             }
+             notifyListeners();
+         } catch (IOException | RuntimeException | OutOfMemoryError e) {
