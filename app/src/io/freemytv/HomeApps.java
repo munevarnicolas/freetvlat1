@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
 final class HomeApps {
     private HomeApps() {}
 
-    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
+    static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, NOTIFICATIONS = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
@@ -204,14 +204,16 @@ final class HomeApps {
             while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
             Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
             if (src == null) return null;
-            // Center-crop to the tile's shape, then scale to the exact size.
+            // A picture close to the tile's shape fills it (center-cropped). Any other shape (a square app icon, a
+            // tall poster) is shown whole, centered over a blurred copy of itself, so nothing important is cut off.
             float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
-            int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
-            int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
-            Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
-            Bitmap icon = Bitmap.createScaledBitmap(crop, w, h, true);
-            if (crop != src) src.recycle();
-            if (icon != crop) crop.recycle();
+            Bitmap icon;
+            if (Math.abs(have / want - 1) <= 0.15f) {
+                icon = coverScaled(src, w, h);
+            } else {
+                icon = fitOnBlur(src, w, h);
+            }
+            if (icon != src) src.recycle();
             if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
             icon.setHasMipMap(true);
             OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
@@ -219,6 +221,97 @@ final class HomeApps {
             return icon;
         } catch (RuntimeException | OutOfMemoryError e) {
             return null;
+        }
+    }
+
+    /** The picture center-cropped to the shape w × h and scaled to that size. */
+    private static Bitmap coverScaled(Bitmap src, int w, int h) {
+        float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
+        int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
+        int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
+        Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
+        Bitmap scaled = Bitmap.createScaledBitmap(crop, w, h, true);
+        if (crop != src && crop != scaled) crop.recycle();
+        return scaled;
+    }
+
+    /** The whole picture (with a small margin) centered on w × h, over a blurred, slightly darkened copy of itself. */
+    private static Bitmap fitOnBlur(Bitmap src, int w, int h) {
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(out);
+        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+        // Blur: shrink the covering picture to a few pixels and stretch it back up in two steps.
+        Bitmap tiny = coverScaled(src, Math.max(2, w / 24), Math.max(2, h / 24));
+        Bitmap mid = Bitmap.createScaledBitmap(tiny, Math.max(2, w / 6), Math.max(2, h / 6), true);
+        cv.drawBitmap(mid, null, new RectF(0, 0, w, h), paint);
+        cv.drawColor(0x33000000);
+        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * 0.9f;
+        int dw = Math.max(1, Math.round(src.getWidth() * scale)), dh = Math.max(1, Math.round(src.getHeight() * scale));
+        Bitmap fit = Bitmap.createScaledBitmap(src, dw, dh, true);
+        cv.drawBitmap(fit, (w - dw) / 2f, (h - dh) / 2f, paint);
+        if (tiny != mid) tiny.recycle();
+        if (fit != src) fit.recycle();
+        return out;
+    }
+
+    /** True when the person has set an own icon for this app (by package or key). */
+    static boolean hasOwnIcon(Context c, String pkg, String key) {
+        File dir = iconsDir(c);
+        if (dir == null) return false;
+        for (String name : new String[] {pkg, key}) {
+            if (name == null) continue;
+            for (String ext : ICON_EXTENSIONS) if (new File(dir, name + ext).isFile()) return true;
+        }
+        return false;
+    }
+
+    /** Removes the own icon (any format) of the app: its original icon comes back. */
+    static synchronized void removeOwnIcon(Context c, String pkg, String key) {
+        File dir = iconsDir(c);
+        if (dir == null) return;
+        for (String name : new String[] {pkg, key}) {
+            if (name == null) continue;
+            for (String ext : ICON_EXTENSIONS) new File(dir, name + ext).delete();
+            String prefix = new File(dir, name).getPath();
+            OWN.keySet().removeIf(k -> k.startsWith(prefix));
+        }
+    }
+
+    /** The package whose icon is being chosen while the file picker is open (kept across a restart of the home screen). */
+    static String pendingIconPkg;
+
+    /** Saves the picture the person chose (png, jpg, webp...) as the app's own icon, at most 1600 px on its long side. */
+    static synchronized boolean saveOwnIcon(Context c, String pkg, android.net.Uri uri) {
+        File dir = iconsDir(c);
+        if (dir == null || pkg == null) return false;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = c.getContentResolver().openInputStream(uri)) {
+                if (in == null) return false;
+                BitmapFactory.decodeStream(in, null, bounds);
+            }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false;
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (opts.inSampleSize * 2) >= 1600) opts.inSampleSize *= 2;
+            Bitmap bmp;
+            try (InputStream in = c.getContentResolver().openInputStream(uri)) {
+                if (in == null) return false;
+                bmp = BitmapFactory.decodeStream(in, null, opts);
+            }
+            if (bmp == null) return false;
+            boolean alpha = bmp.hasAlpha();       // PNG keeps transparency; photos go smaller as JPEG
+            File tmp = new File(dir, pkg + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                if (!bmp.compress(alpha ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, alpha ? 100 : 92, out)) return false;
+            }
+            bmp.recycle();
+            removeOwnIcon(c, pkg, null);          // an older picture, in whatever format
+            return tmp.renameTo(new File(dir, pkg + (alpha ? ".png" : ".jpg")));
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            AppLog.w("couldn't save the icon of " + pkg + ": " + e.getMessage());
+            return false;
         }
     }
 
@@ -445,6 +538,7 @@ final class HomeApps {
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
+        if (it.kind == NOTIFICATIONS) return openNotifications(a, from, x, y, w, h);
         Intent intent;
         switch (it.kind) {
             case APP:
@@ -475,6 +569,49 @@ final class HomeApps {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());
             return false;
         }
+    }
+
+    /** The TV launchers that own the notification panel (Google TV, then the older Android TV one). */
+    private static final String[] NOTIFICATION_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher"};
+
+    /**
+     * The TV's own notification panel. Google TV does not document an intent for it, so the launchers' own activities
+     * are searched at run time (exported, with "notification" in the name, the panel first); the Android TV launcher's
+     * known panel activity goes last. They are tried in order until one opens.
+     */
+    static List<Intent> notificationIntents(Context c) {
+        List<Intent> out = new ArrayList<>();
+        PackageManager pm = c.getPackageManager();
+        for (String pkg : NOTIFICATION_PACKAGES) {
+            try {
+                android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
+                if (info.activities == null) continue;
+                List<ActivityInfo> found = new ArrayList<>();
+                for (ActivityInfo ai : info.activities) {
+                    String n = ai.name.toLowerCase(Locale.ROOT);
+                    if (ai.exported && ai.enabled && n.contains("notification") && !n.contains("setting")) found.add(ai);
+                }
+                Collections.sort(found, (x, y) -> Boolean.compare(!x.name.contains("Panel"), !y.name.contains("Panel")));
+                for (ActivityInfo ai : found) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+            } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+            }
+        }
+        out.add(new Intent().setComponent(new ComponentName("com.google.android.tvlauncher",
+                "com.google.android.tvlauncher.notifications.NotificationsSidePanelActivity")));
+        return out;
+    }
+
+    private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
+        for (Intent intent : notificationIntents(a)) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+                return true;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                AppLog.w("notifications: " + intent.getComponent() + " didn't open: " + e.getMessage());
+            }
+        }
+        return false;
     }
 
     /**

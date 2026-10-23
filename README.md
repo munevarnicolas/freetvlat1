@@ -130,15 +130,20 @@ Free, and it takes two minutes: create an account at [themoviedb.org](https://ww
 
 [#own-icons](#own-icons)
 
-Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp). Name the file after the
-app's package and put it in the app's icons folder on the TV:
+Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp).
+
+**From the TV:** hold OK on an app for 2 seconds (on the shelf the move mode starts first, at half a second, and is
+cancelled), release, and a menu offers *Choose an image…* (a file picker such as CX File Explorer opens) and, when the
+app already has an own icon, *Restore the original icon*. A picture close to the tile's shape fills it; any other shape
+(a square app icon, a tall poster) is shown whole over a blurred copy of itself.
+
+**From a computer:** name the file after the app's package and put it in the app's icons folder on the TV:
 
 ```
 adb push netflix.png /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png
 ```
 
-The picture is center-cropped to the tile (5:3 on the shelf, 16:9 under it), so a 5:3 picture such as 1500 × 900 fits
-the shelf without losing anything. Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
+A 5:3 picture such as 1500 × 900 fills the shelf tile exactly (16:9 under the shelf). Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
 original icon comes back. `adb shell pm list packages` lists the package names.
 
 ## Going back

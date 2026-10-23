@@ -21,6 +21,7 @@ public class HomeActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Watchdog.install(this);
+        if (savedInstanceState != null) HomeApps.pendingIconPkg = savedInstanceState.getString("iconPkg");
         if (Watchdog.crashedTooOften(this)) {
             // Don't try to draw again: only show a notice while the main process restores the original home screen.
             HomeMode.requestRevertHome(this);
@@ -49,6 +50,17 @@ public class HomeActivity extends Activity {
             return;
         }
         if (home != null) home.resume();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (HomeApps.pendingIconPkg != null) outState.putString("iconPkg", HomeApps.pendingIconPkg);
+    }
+
+    /** The file picker opened by holding OK on an app answered. */
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == HomeView.REQ_ICON && home != null) home.iconPicked(resultCode, data);
     }
 
     @Override protected void onPause() {

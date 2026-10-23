@@ -3,6 +3,7 @@ package io.freemytv;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
@@ -196,6 +197,82 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring moveLift = new Spring(0.3f, 0.72f, 0);
     private List<HomeApps.Item> reorderOrigin;
     private final Runnable holdStart = () -> { if (this.okDown && this.holdArmed) startReorder(); };
+
+    // Holding OK for 2 s on an app (shelf, drawer or All Apps) offers to change its icon. On the shelf the move mode
+    // starts first (at 0.5 s); at 2 s it is cancelled and, when OK is released, the icon menu opens.
+    static final int REQ_ICON = 4107;
+    private static final long ICON_HOLD_MS = 2000;
+    private boolean iconPending;
+    private HomeApps.Item iconItem;
+    private final Runnable iconHold = this::iconHeld;
+
+    private void iconHeld() {
+        if (!okDown || iconItem == null) return;
+        if (reordering) cancelReorder(false);
+        handler.removeCallbacks(holdStart);
+        holdArmed = false;
+        okHeld = true;                  // the release must not open the app
+        iconPending = true;
+        click.open();
+        showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
+    }
+
+    /** The app under the focus, if its icon can be changed. */
+    private HomeApps.Item iconTarget() {
+        HomeApps.Item it = null;
+        if (sheetOpen) {
+            if (gridIndex < others.size()) it = others.get(gridIndex);
+        } else if (zone == Z_SHELF) {
+            if (shelfIndex < shelf.size()) it = shelf.get(shelfIndex);
+        } else if (zone == Z_APPS) {
+            if (appIndex < others.size()) it = others.get(appIndex);
+        }
+        return it != null && it.kind == HomeApps.APP && it.pkg != null ? it : null;
+    }
+
+    private void showIconDialog(final HomeApps.Item it) {
+        final boolean own = HomeApps.hasOwnIcon(getContext(), it.pkg, it.key);
+        final List<String> labels = new ArrayList<>();
+        labels.add(Ui.tr("Escolher imagem…", "Choose an image…", "Elegir imagen…"));
+        if (own) labels.add(Ui.tr("Restaurar o ícone original", "Restore the original icon", "Restaurar el icono original"));
+        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(Ui.tr("Ícone de ", "Icon for ", "Icono de ") + it.label)
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    if (which == 0) {
+                        HomeApps.pendingIconPkg = it.pkg;
+                        Intent get = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+                        try {
+                            activity.startActivityForResult(Intent.createChooser(get,
+                                    Ui.tr("Escolher imagem", "Choose an image", "Elegir imagen")), REQ_ICON);
+                        } catch (android.content.ActivityNotFoundException e) {
+                            HomeApps.pendingIconPkg = null;
+                            showToast(Ui.tr("Nenhum app para escolher arquivos", "No app to pick files", "No hay app para elegir archivos"));
+                        }
+                    } else {
+                        HomeApps.removeOwnIcon(getContext(), it.pkg, it.key);
+                        showToast(Ui.tr("Ícone original restaurado", "Original icon restored", "Icono original restaurado"));
+                        reload();
+                    }
+                })
+                .show();
+    }
+
+    /** The file picker answered (HomeActivity.onActivityResult): the chosen picture becomes the app's icon. */
+    void iconPicked(int resultCode, Intent data) {
+        final String pkg = HomeApps.pendingIconPkg;
+        HomeApps.pendingIconPkg = null;
+        if (pkg == null || resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
+        final android.net.Uri uri = data.getData();
+        final Context c = getContext().getApplicationContext();
+        LOADER.execute(() -> {
+            final boolean ok = HomeApps.saveOwnIcon(c, pkg, uri);
+            handler.post(() -> {
+                showToast(ok ? Ui.tr("Ícone alterado", "Icon changed", "Icono cambiado")
+                        : Ui.tr("Não consegui usar essa imagem", "Couldn't use that image", "No pude usar esa imagen"));
+                if (ok) reload();
+            });
+        });
+    }
 
     // Corner capsule
     private List<HomeApps.Item> statusItems = new ArrayList<>();
@@ -464,6 +541,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         running = false;
         cancelReorder(true);
         handler.removeCallbacks(holdStart);
+        handler.removeCallbacks(iconHold);
+        iconItem = null;
+        iconPending = false;
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
@@ -506,11 +586,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
-        // Left to right: FreeTV settings, then Android settings (the last one sits at the right edge).
-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings",
-                Ui.tr("Ajustes do FreeTV", "FreeTV Settings", "Ajustes de FreeTV"), "settings"));
+        // Left to right: the TV's notification panel (a Wi-Fi icon), then Android settings with the gear (right edge).
+        // Free My TV's own settings are still one tap away: the "Free My TV" tile at the end of the app drawer.
+        lightButtons.add(HomeApps.action(HomeApps.NOTIFICATIONS, "notifications",
+                Ui.tr("Notificações", "Notifications", "Notificaciones"), "wifi"));
         lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
-                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
+                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "settings"));
     }
 
     private static String[] tabs() {
@@ -2062,6 +2143,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 && code != KeyEvent.KEYCODE_NUMPAD_ENTER) {
             holdArmed = false;      // another key while OK is held: no move mode
             handler.removeCallbacks(holdStart);
+            handler.removeCallbacks(iconHold);
+            iconItem = null;
         }
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
@@ -2088,16 +2171,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         okDown = true;
                         okHeld = false;
                         handler.removeCallbacks(holdStart);
+                        handler.removeCallbacks(iconHold);
+                        iconPending = false;
                         holdArmed = canReorder();
                         if (holdArmed) handler.postDelayed(holdStart, HOLD_MS);
+                        iconItem = iconTarget();
+                        if (iconItem != null) handler.postDelayed(iconHold, ICON_HOLD_MS);
                     } else if (okDown && holdArmed && e.isLongPress()) {
                         startReorder();
                     }
                 } else {
                     holdArmed = false;
                     handler.removeCallbacks(holdStart);
+                    handler.removeCallbacks(iconHold);
+                    final HomeApps.Item changeIcon = iconPending ? iconItem : null;
+                    iconPending = false;
+                    iconItem = null;
                     if (okDown && !okHeld && !e.isCanceled() && spoken.keyClick()) activate();
                     okDown = okHeld = false;
+                    if (changeIcon != null) showIconDialog(changeIcon);
                 }
                 return true;
             case KeyEvent.KEYCODE_BACK:
@@ -2393,7 +2485,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         switch (e.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if (down) shiftReorder(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
+                if (down) {
+                    handler.removeCallbacks(iconHold);     // moving the app: no icon menu
+                    iconItem = null;
+                    shiftReorder(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_DPAD_DOWN:
@@ -2403,9 +2499,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 // The press that lifted the app is still held: its repeats and release do nothing; a new press drops it.
                 if (down && e.getRepeatCount() == 0) {
+                    handler.removeCallbacks(iconHold);
+                    iconItem = null;
                     okDown = okHeld = false;
                     dropReorder();
                 } else if (!down) {
+                    handler.removeCallbacks(iconHold);     // released before 2 s: the move mode goes on
+                    iconItem = null;
                     okDown = okHeld = false;
                 }
                 return true;
