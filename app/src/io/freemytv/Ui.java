@@ -200,6 +200,12 @@ final class Ui {
                 : new SimpleDateFormat(de ? "EEEE, d. MMMM" : "EEEE, d 'de' MMMM", locale()).format(new Date(now));
     }
 
+    /** "Jueves 22 de octubre" (Spanish and Portuguese, first letter up); the other languages as {@link #date}. */
+    static String dateLong(long now) {
+        String s = en || de || ru ? date(now) : new SimpleDateFormat("EEEE d 'de' MMMM", locale()).format(new Date(now));
+        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
     /** Spinning arc (work in progress). */
     static void spinner(Canvas c, float cx, float cy, float r, float seconds, Paint stroke) {
         OVAL.set(cx - r, cy - r, cx + r, cy + r);

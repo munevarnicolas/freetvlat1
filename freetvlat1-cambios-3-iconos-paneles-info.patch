@@ -1,0 +1,400 @@
+diff --git a/app/src/io/freemytv/HomeApps.java b/app/src/io/freemytv/HomeApps.java
+index 88cf8d6..969bcf3 100644
+--- a/app/src/io/freemytv/HomeApps.java
++++ b/app/src/io/freemytv/HomeApps.java
+@@ -204,16 +204,19 @@ final class HomeApps {
+             while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
+             Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
+             if (src == null) return null;
+-            // A picture close to the tile's shape fills it (center-cropped). Any other shape (a square app icon, a
+-            // tall poster) is shown whole, centered over a blurred copy of itself, so nothing important is cut off.
+-            float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
++            // Always edge to edge, with no margin. Transparent padding is cut off first. A picture on its own flat
++            // background (a logo) keeps all of it and the background is extended to the tile's shape, so the seam
++            // doesn't show; any other picture (a photo, a banner) fills the tile center-cropped.
++            Bitmap trimmed = trimTransparent(src);
++            boolean[] clear = new boolean[1];
++            int flat = flatEdge(trimmed, clear);
++            float want = (float) w / h, have = (float) trimmed.getWidth() / trimmed.getHeight();
+             Bitmap icon;
+-            if (Math.abs(have / want - 1) <= 0.15f) {
+-                icon = coverScaled(src, w, h);
+-            } else {
+-                icon = fitOnBlur(src, w, h);
+-            }
+-            if (icon != src) src.recycle();
++            if (flat != 0 && clear[0]) icon = fitOnColor(trimmed, w, h, flat, 0.8f);      // a bare logo: some air around it, like the other icons
++            else if (flat != 0 && Math.abs(have / want - 1) > 0.03f) icon = fitOnColor(trimmed, w, h, flat, 1f);
++            else icon = coverScaled(trimmed, w, h);
++            if (trimmed != src && trimmed != icon) trimmed.recycle();
++            if (icon != src && icon != trimmed) src.recycle();
+             if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
+             icon.setHasMipMap(true);
+             OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
+@@ -235,21 +238,82 @@ final class HomeApps {
+         return scaled;
+     }
+ 
+-    /** The whole picture (with a small margin) centered on w × h, over a blurred, slightly darkened copy of itself. */
+-    private static Bitmap fitOnBlur(Bitmap src, int w, int h) {
++    /** The picture without its fully transparent borders (padding that would show as a margin). */
++    private static Bitmap trimTransparent(Bitmap src) {
++        if (!src.hasAlpha()) return src;
++        int w = src.getWidth(), h = src.getHeight();
++        int[] px = new int[w * h];
++        src.getPixels(px, 0, w, 0, 0, w, h);
++        int l = w, t = h, r = -1, b = -1;
++        for (int y = 0; y < h; y++) {
++            for (int x = 0; x < w; x++) {
++                if ((px[y * w + x] >>> 24) <= 24) continue;
++                if (x < l) l = x;
++                if (x > r) r = x;
++                if (y < t) t = y;
++                if (y > b) b = y;
++            }
++        }
++        if (r < l || b < t || (l == 0 && t == 0 && r == w - 1 && b == h - 1)) return src;
++        return Bitmap.createBitmap(src, l, t, r - l + 1, b - t + 1);
++    }
++
++    private static int edgePixel(int[] px, int w, int h, int i) {
++        return i < w ? px[i] : i < 2 * w ? px[(h - 1) * w + (i - w)] : i < 2 * w + h ? px[(i - 2 * w) * w] : px[(i - 2 * w - h) * w + w - 1];
++    }
++
++    /**
++     * The flat color around the picture, when its edge is one color (a logo on its own background; a few stray pixels
++     * from JPEG noise or a logo touching the edge are allowed). A transparent edge (clear[0] = true) gets a dark or
++     * white background, whichever the logo's own colors stand out from. 0 when the edge isn't flat.
++     */
++    private static int flatEdge(Bitmap src, boolean[] clear) {
++        int w = src.getWidth(), h = src.getHeight();
++        if (w < 2 || h < 2) return 0;
++        int[] px = new int[w * h];
++        src.getPixels(px, 0, w, 0, 0, w, h);
++        int edge = 2 * (w + h), solid = 0, see = 0;
++        long sr = 0, sg = 0, sb = 0;
++        for (int i = 0; i < edge; i++) {
++            int p = edgePixel(px, w, h, i);
++            if ((p >>> 24) < 128) {
++                see++;
++            } else {
++                solid++;
++                sr += (p >> 16) & 255;
++                sg += (p >> 8) & 255;
++                sb += p & 255;
++            }
++        }
++        if (see * 2 > edge) {
++            clear[0] = true;
++            double lum = 0;
++            int n = 0;
++            for (int p : px) {
++                if ((p >>> 24) < 128) continue;
++                lum += 0.299 * ((p >> 16) & 255) + 0.587 * ((p >> 8) & 255) + 0.114 * (p & 255);
++                n++;
++            }
++            return n > 0 && lum / n > 140 ? 0xFF1C1C1E : 0xFFF5F5F7;
++        }
++        int mr = (int) (sr / solid), mg = (int) (sg / solid), mb = (int) (sb / solid), stray = 0;
++        for (int i = 0; i < edge; i++) {
++            int p = edgePixel(px, w, h, i);
++            if ((p >>> 24) < 128 || Math.abs(((p >> 16) & 255) - mr) + Math.abs(((p >> 8) & 255) - mg) + Math.abs((p & 255) - mb) > 90) stray++;
++        }
++        return stray * 20 > edge ? 0 : 0xFF000000 | (mr << 16) | (mg << 8) | mb;
++    }
++
++    /** The whole picture over its own flat background extended to w × h (the background has no visible edge); fill < 1 leaves room around a bare logo. */
++    private static Bitmap fitOnColor(Bitmap src, int w, int h, int color, float fill) {
+         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+         Canvas cv = new Canvas(out);
++        cv.drawColor(color);
+         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+-        // Blur: shrink the covering picture to a few pixels and stretch it back up in two steps.
+-        Bitmap tiny = coverScaled(src, Math.max(2, w / 24), Math.max(2, h / 24));
+-        Bitmap mid = Bitmap.createScaledBitmap(tiny, Math.max(2, w / 6), Math.max(2, h / 6), true);
+-        cv.drawBitmap(mid, null, new RectF(0, 0, w, h), paint);
+-        cv.drawColor(0x33000000);
+-        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * 0.9f;
++        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * fill;
+         int dw = Math.max(1, Math.round(src.getWidth() * scale)), dh = Math.max(1, Math.round(src.getHeight() * scale));
+         Bitmap fit = Bitmap.createScaledBitmap(src, dw, dh, true);
+         cv.drawBitmap(fit, (w - dw) / 2f, (h - dh) / 2f, paint);
+-        if (tiny != mid) tiny.recycle();
+         if (fit != src) fit.recycle();
+         return out;
+     }
+@@ -571,47 +635,77 @@ final class HomeApps {
+         }
+     }
+ 
+-    /** The TV launchers that own the notification panel (Google TV, then the older Android TV one). */
+-    private static final String[] NOTIFICATION_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher"};
+-
+     /**
+-     * The TV's own notification panel. Google TV does not document an intent for it, so the launchers' own activities
+-     * are searched at run time (exported, with "notification" in the name, the panel first); the Android TV launcher's
+-     * known panel activity goes last. They are tried in order until one opens.
++     * Where the TV keeps its quick panel and notification panel. In Free My TV mode the stock home screen (Google TV's
++     * launcher, where the panels live) is turned off, so its activities can't start: only enabled packages count.
+      */
+-    static List<Intent> notificationIntents(Context c) {
++    private static final String[] PANEL_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher",
++            "com.android.systemui", "com.android.tv.settings", "com.tcl.dashboard"};
++
++    /** Names of exported activities that are a quick panel or a notification panel (the quick panel first). */
++    private static boolean quickName(String n) {
++        return n.contains("quicksettings") || n.contains("quickpanel");
++    }
++
++    private static boolean notificationName(String n) {
++        return (n.contains("notification") && n.contains("panel")) || n.contains("notificationssidepanel");
++    }
++
++    /** The panels' activities that are really there and on: AOSP's quick settings action, then the ones found by name. */
++    static List<Intent> panelIntents(Context c) {
+         List<Intent> out = new ArrayList<>();
+         PackageManager pm = c.getPackageManager();
+-        for (String pkg : NOTIFICATION_PACKAGES) {
++        for (String action : new String[] {"com.android.tv.QUICK_SETTINGS", "com.android.tv.NOTIFICATION_PANEL"}) {
++            Intent intent = new Intent(action);
++            if (intent.resolveActivity(pm) != null) out.add(intent);
++        }
++        List<ActivityInfo> quick = new ArrayList<>(), notes = new ArrayList<>();
++        for (String pkg : PANEL_PACKAGES) {
+             try {
+                 android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
+-                if (info.activities == null) continue;
+-                List<ActivityInfo> found = new ArrayList<>();
++                if (info.activities == null || !info.applicationInfo.enabled) continue;
+                 for (ActivityInfo ai : info.activities) {
+                     String n = ai.name.toLowerCase(Locale.ROOT);
+-                    if (ai.exported && ai.enabled && n.contains("notification") && !n.contains("setting")) found.add(ai);
++                    if (!ai.exported || !ai.enabled) continue;
++                    if (quickName(n)) quick.add(ai);
++                    else if (notificationName(n)) notes.add(ai);
+                 }
+-                Collections.sort(found, (x, y) -> Boolean.compare(!x.name.contains("Panel"), !y.name.contains("Panel")));
+-                for (ActivityInfo ai : found) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+             } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
+             }
+         }
+-        out.add(new Intent().setComponent(new ComponentName("com.google.android.tvlauncher",
+-                "com.google.android.tvlauncher.notifications.NotificationsSidePanelActivity")));
++        for (ActivityInfo ai : quick) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
++        for (ActivityInfo ai : notes) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+         return out;
+     }
+ 
++    /**
++     * The quick panel / notifications button. In order, the first that works: the panel's own activity, if the TV has
++     * it on; the system bar's panels through the TV's own ADB (checked: our home screen must lose the focus); and
++     * last the TV's Wi-Fi settings, so the button always opens something.
++     */
+     private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
+-        for (Intent intent : notificationIntents(a)) {
++        for (Intent intent : panelIntents(a)) {
+             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+             try {
+                 a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
++                AppLog.w("panel: opened " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()));
+                 return true;
+             } catch (ActivityNotFoundException | SecurityException e) {
+-                AppLog.w("notifications: " + intent.getComponent() + " didn't open: " + e.getMessage());
++                AppLog.w("panel: " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()) + " didn't open: " + e.getMessage());
+             }
+         }
+-        return false;
++        final Context app = a.getApplicationContext();
++        new Thread(() -> {
++            if (HomeMode.expandPanel(app)) return;
++            a.runOnUiThread(() -> {
++                try {
++                    a.startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
++                } catch (ActivityNotFoundException | SecurityException e) {
++                    AppLog.w("panel: Wi-Fi settings didn't open: " + e.getMessage());
++                }
++            });
++        }, "panel").start();
++        return true;
+     }
+ 
+     /**
+diff --git a/app/src/io/freemytv/HomeMode.java b/app/src/io/freemytv/HomeMode.java
+index 978e9f7..1cca2e8 100644
+--- a/app/src/io/freemytv/HomeMode.java
++++ b/app/src/io/freemytv/HomeMode.java
+@@ -112,6 +112,35 @@ final class HomeMode {
+     private static final Object RUN = new Object();
+     private static final Object FILE_LOCK = new Object();
+ 
++    /**
++     * Opens the TV's quick panel, or its notifications, through the TV's own ADB (fixed commands only). True when the
++     * panel took the focus away from this home screen; false when there is no such panel or debugging is off.
++     */
++    static boolean expandPanel(Context c) {
++        try (Adb adb = Adb.connect(c, 5_000, null)) {
++            for (String command : new String[] {"cmd statusbar expand-settings", "cmd statusbar expand-notifications"}) {
++                String out = adb.shell(command);
++                if (out.contains("Can't find service") || out.contains("Unknown command") || out.contains("Exception")) {
++                    AppLog.w("panel: '" + command + "' isn't available: " + out.trim());
++                    continue;
++                }
++                try {
++                    Thread.sleep(700);
++                } catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    return false;
++                }
++                String focus = adb.shell("dumpsys window | grep mCurrentFocus");
++                boolean moved = !focus.isEmpty() && !focus.contains(PKG);
++                AppLog.w("panel: '" + command + "' -> focus " + focus.trim() + (moved ? " (opened)" : " (nothing)"));
++                if (moved) return true;
++            }
++        } catch (IOException e) {
++            AppLog.w("panel: no ADB: " + e.getMessage());
++        }
++        return false;
++    }
++
+     // MARK: - Requests (from any process)
+ 
+     /** Asks the main process to switch (the settings screen calls this). */
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 5d67e9d..9f4a5f3 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -161,7 +161,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private final android.graphics.Rect cropRect = new android.graphics.Rect();
+     private final RectF cropCell = new RectF();
+     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
+-    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
++    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lInfo, lTip, lDate, lClock, lWeather, lClockQuote;
+     private Shader lightGradient;
+ 
+     // Shelf
+@@ -696,6 +696,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         lCardTitle.setLetterSpacing(0.012f);
+         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
+         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
++        lInfo = Ui.numbers(Ui.regular, 24 * k, L_FAINT);
+         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
+         lTip.setTextAlign(Paint.Align.CENTER);
+         lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
+@@ -1060,6 +1061,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         lCardTitle.setColor(tone(L_INK, WHITE));
+         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
+         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
++        lInfo.setColor(tone(L_FAINT, 0xB8FFFFFF));
+         lTip.setColor(tone(L_INK, WHITE));
+         lDate.setColor(tone(L_DIM, 0xFF98989D));
+         lClock.setColor(tone(L_INK, WHITE));
+@@ -1305,6 +1307,74 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     private Quotes quotes;
+ 
++    private String infoText = "", infoCompact = "", infoCity = "", infoLang = "";
++    private float infoW, infoCompactW, infoHalfCap;
++    private long infoMinute = -1, infoWeatherAt = -1;
++    private int infoPrefs = -1;
++
++    /** The info line's text: the day, the time, the weather and the city (from Home Settings). Built once a minute. */
++    private void refreshInfo() {
++        long now = System.currentTimeMillis();
++        if (now / 60_000 == infoMinute && data.weatherAt == infoWeatherAt && Prefs.version == infoPrefs
++                && Ui.language.equals(infoLang)) return;
++        infoMinute = now / 60_000;
++        infoWeatherAt = data.weatherAt;
++        infoPrefs = Prefs.version;
++        infoLang = Ui.language;
++        String gap = "      ", city = Prefs.city(), time = Ui.clock(now);
++        StringBuilder full = new StringBuilder(Ui.dateLong(now)).append(gap).append(time);
++        StringBuilder compact = new StringBuilder(time);
++        HomeData.Weather wx = data.weather;
++        if (Prefs.weather() && !Double.isNaN(wx.temp)) {
++            String temp = HomeData.degrees(wx.temp), condition = HomeData.condition(wx.code, wx.isDay);
++            full.append(gap).append(temp).append(' ').append(condition);
++            compact.append(gap).append(temp);
++        }
++        if (!city.isEmpty()) {
++            full.append(gap).append(city);
++            compact.append(gap).append(city);
++        }
++        infoText = full.toString();
++        infoCompact = compact.toString();
++        infoCity = city;
++        infoW = lInfo.measureText(infoText);
++        infoCompactW = lInfo.measureText(infoCompact);
++        infoHalfCap = Ui.halfCap(lInfo);
++    }
++
++    /**
++     * Where the crypto prices used to be: on the tab bar, the day, the time, the weather and the city at the right end.
++     * It gives way to the shorter text when the long one would run into the tabs. Under the big clock (no TMDB key:
++     * the clock already shows the day and the weather) only the city.
++     */
++    private void drawInfo(Canvas c) {
++        if (lInfo == null) return;
++        boolean clock = !picksOn();
++        applyTone();
++        float fade = 1;
++        for (int i = 3; i < 3 + BUTTONS && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
++        if (fade <= 0.01f) return;
++        refreshInfo();
++        if (clock) {
++            if (infoCity.isEmpty()) return;
++            int color = lClockQuote.getColor();
++            lClockQuote.setColor(Ui.alpha(color, fade));
++            c.drawText(infoCity, MARGIN * k, L_QUOTES_BASE * k, lClockQuote);
++            lClockQuote.setColor(color);
++            return;
++        }
++        float right = platterRect.isEmpty() ? CONTENT_R * k : platterRect.right - SHELF_PAD * k;
++        float room = right - topRects[2].right - 48 * k;
++        boolean full = infoW <= room;
++        String text = full ? infoText : infoCompact;
++        float width = full ? infoW : infoCompactW;
++        if (width > room) return;
++        int color = lInfo.getColor();
++        lInfo.setColor(Ui.alpha(color, fade));
++        c.drawText(text, right - width, (L_TABBAR_TOP + L_TABBAR_H / 2) * k + infoHalfCap, lInfo);
++        lInfo.setColor(color);
++    }
++
+     /** Coin logo + price in the configured currency, in a row at the right end of the tab bar. */
+     private void drawQuotes(Canvas c) {
+         boolean clock = !picksOn();
+@@ -3003,7 +3073,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         applyTone();
+         if (!picksOn()) {
+             drawClock(c);
+-            if (HomeData.coinCount() > 0) drawQuotes(c);
++            drawInfo(c);
+             return;
+         }
+         String hello = Ui.tr("Para você", "For You");
+@@ -3033,7 +3103,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
+         }
+         drawCarousel(c);
+-        if (HomeData.coinCount() > 0) drawQuotes(c);
++        drawInfo(c);
+     }
+ 
+     private boolean picksOn() {
+diff --git a/app/src/io/freemytv/Ui.java b/app/src/io/freemytv/Ui.java
+index a7e2ab2..b3f0e07 100644
+--- a/app/src/io/freemytv/Ui.java
++++ b/app/src/io/freemytv/Ui.java
+@@ -200,6 +200,12 @@ final class Ui {
+                 : new SimpleDateFormat(de ? "EEEE, d. MMMM" : "EEEE, d 'de' MMMM", locale()).format(new Date(now));
+     }
+ 
++    /** "Jueves 22 de octubre" (Spanish and Portuguese, first letter up); the other languages as {@link #date}. */
++    static String dateLong(long now) {
++        String s = en || de || ru ? date(now) : new SimpleDateFormat("EEEE d 'de' MMMM", locale()).format(new Date(now));
++        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
++    }
++
+     /** Spinning arc (work in progress). */
+     static void spinner(Canvas c, float cx, float cy, float r, float seconds, Paint stroke) {
+         OVAL.set(cx - r, cy - r, cx + r, cy + r);

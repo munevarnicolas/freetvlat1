@@ -204,16 +204,19 @@ final class HomeApps {
             while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
             Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
             if (src == null) return null;
-            // A picture close to the tile's shape fills it (center-cropped). Any other shape (a square app icon, a
-            // tall poster) is shown whole, centered over a blurred copy of itself, so nothing important is cut off.
-            float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
+            // Always edge to edge, with no margin. Transparent padding is cut off first. A picture on its own flat
+            // background (a logo) keeps all of it and the background is extended to the tile's shape, so the seam
+            // doesn't show; any other picture (a photo, a banner) fills the tile center-cropped.
+            Bitmap trimmed = trimTransparent(src);
+            boolean[] clear = new boolean[1];
+            int flat = flatEdge(trimmed, clear);
+            float want = (float) w / h, have = (float) trimmed.getWidth() / trimmed.getHeight();
             Bitmap icon;
-            if (Math.abs(have / want - 1) <= 0.15f) {
-                icon = coverScaled(src, w, h);
-            } else {
-                icon = fitOnBlur(src, w, h);
-            }
-            if (icon != src) src.recycle();
+            if (flat != 0 && clear[0]) icon = fitOnColor(trimmed, w, h, flat, 0.8f);      // a bare logo: some air around it, like the other icons
+            else if (flat != 0 && Math.abs(have / want - 1) > 0.03f) icon = fitOnColor(trimmed, w, h, flat, 1f);
+            else icon = coverScaled(trimmed, w, h);
+            if (trimmed != src && trimmed != icon) trimmed.recycle();
+            if (icon != src && icon != trimmed) src.recycle();
             if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
             icon.setHasMipMap(true);
             OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
@@ -235,21 +238,82 @@ final class HomeApps {
         return scaled;
     }
 
-    /** The whole picture (with a small margin) centered on w × h, over a blurred, slightly darkened copy of itself. */
-    private static Bitmap fitOnBlur(Bitmap src, int w, int h) {
+    /** The picture without its fully transparent borders (padding that would show as a margin). */
+    private static Bitmap trimTransparent(Bitmap src) {
+        if (!src.hasAlpha()) return src;
+        int w = src.getWidth(), h = src.getHeight();
+        int[] px = new int[w * h];
+        src.getPixels(px, 0, w, 0, 0, w, h);
+        int l = w, t = h, r = -1, b = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if ((px[y * w + x] >>> 24) <= 24) continue;
+                if (x < l) l = x;
+                if (x > r) r = x;
+                if (y < t) t = y;
+                if (y > b) b = y;
+            }
+        }
+        if (r < l || b < t || (l == 0 && t == 0 && r == w - 1 && b == h - 1)) return src;
+        return Bitmap.createBitmap(src, l, t, r - l + 1, b - t + 1);
+    }
+
+    private static int edgePixel(int[] px, int w, int h, int i) {
+        return i < w ? px[i] : i < 2 * w ? px[(h - 1) * w + (i - w)] : i < 2 * w + h ? px[(i - 2 * w) * w] : px[(i - 2 * w - h) * w + w - 1];
+    }
+
+    /**
+     * The flat color around the picture, when its edge is one color (a logo on its own background; a few stray pixels
+     * from JPEG noise or a logo touching the edge are allowed). A transparent edge (clear[0] = true) gets a dark or
+     * white background, whichever the logo's own colors stand out from. 0 when the edge isn't flat.
+     */
+    private static int flatEdge(Bitmap src, boolean[] clear) {
+        int w = src.getWidth(), h = src.getHeight();
+        if (w < 2 || h < 2) return 0;
+        int[] px = new int[w * h];
+        src.getPixels(px, 0, w, 0, 0, w, h);
+        int edge = 2 * (w + h), solid = 0, see = 0;
+        long sr = 0, sg = 0, sb = 0;
+        for (int i = 0; i < edge; i++) {
+            int p = edgePixel(px, w, h, i);
+            if ((p >>> 24) < 128) {
+                see++;
+            } else {
+                solid++;
+                sr += (p >> 16) & 255;
+                sg += (p >> 8) & 255;
+                sb += p & 255;
+            }
+        }
+        if (see * 2 > edge) {
+            clear[0] = true;
+            double lum = 0;
+            int n = 0;
+            for (int p : px) {
+                if ((p >>> 24) < 128) continue;
+                lum += 0.299 * ((p >> 16) & 255) + 0.587 * ((p >> 8) & 255) + 0.114 * (p & 255);
+                n++;
+            }
+            return n > 0 && lum / n > 140 ? 0xFF1C1C1E : 0xFFF5F5F7;
+        }
+        int mr = (int) (sr / solid), mg = (int) (sg / solid), mb = (int) (sb / solid), stray = 0;
+        for (int i = 0; i < edge; i++) {
+            int p = edgePixel(px, w, h, i);
+            if ((p >>> 24) < 128 || Math.abs(((p >> 16) & 255) - mr) + Math.abs(((p >> 8) & 255) - mg) + Math.abs((p & 255) - mb) > 90) stray++;
+        }
+        return stray * 20 > edge ? 0 : 0xFF000000 | (mr << 16) | (mg << 8) | mb;
+    }
+
+    /** The whole picture over its own flat background extended to w × h (the background has no visible edge); fill < 1 leaves room around a bare logo. */
+    private static Bitmap fitOnColor(Bitmap src, int w, int h, int color, float fill) {
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(out);
+        cv.drawColor(color);
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
-        // Blur: shrink the covering picture to a few pixels and stretch it back up in two steps.
-        Bitmap tiny = coverScaled(src, Math.max(2, w / 24), Math.max(2, h / 24));
-        Bitmap mid = Bitmap.createScaledBitmap(tiny, Math.max(2, w / 6), Math.max(2, h / 6), true);
-        cv.drawBitmap(mid, null, new RectF(0, 0, w, h), paint);
-        cv.drawColor(0x33000000);
-        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * 0.9f;
+        float scale = Math.min((float) w / src.getWidth(), (float) h / src.getHeight()) * fill;
         int dw = Math.max(1, Math.round(src.getWidth() * scale)), dh = Math.max(1, Math.round(src.getHeight() * scale));
         Bitmap fit = Bitmap.createScaledBitmap(src, dw, dh, true);
         cv.drawBitmap(fit, (w - dw) / 2f, (h - dh) / 2f, paint);
-        if (tiny != mid) tiny.recycle();
         if (fit != src) fit.recycle();
         return out;
     }
@@ -571,47 +635,77 @@ final class HomeApps {
         }
     }
 
-    /** The TV launchers that own the notification panel (Google TV, then the older Android TV one). */
-    private static final String[] NOTIFICATION_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher"};
-
     /**
-     * The TV's own notification panel. Google TV does not document an intent for it, so the launchers' own activities
-     * are searched at run time (exported, with "notification" in the name, the panel first); the Android TV launcher's
-     * known panel activity goes last. They are tried in order until one opens.
+     * Where the TV keeps its quick panel and notification panel. In Free My TV mode the stock home screen (Google TV's
+     * launcher, where the panels live) is turned off, so its activities can't start: only enabled packages count.
      */
-    static List<Intent> notificationIntents(Context c) {
+    private static final String[] PANEL_PACKAGES = {"com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher",
+            "com.android.systemui", "com.android.tv.settings", "com.tcl.dashboard"};
+
+    /** Names of exported activities that are a quick panel or a notification panel (the quick panel first). */
+    private static boolean quickName(String n) {
+        return n.contains("quicksettings") || n.contains("quickpanel");
+    }
+
+    private static boolean notificationName(String n) {
+        return (n.contains("notification") && n.contains("panel")) || n.contains("notificationssidepanel");
+    }
+
+    /** The panels' activities that are really there and on: AOSP's quick settings action, then the ones found by name. */
+    static List<Intent> panelIntents(Context c) {
         List<Intent> out = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
-        for (String pkg : NOTIFICATION_PACKAGES) {
+        for (String action : new String[] {"com.android.tv.QUICK_SETTINGS", "com.android.tv.NOTIFICATION_PANEL"}) {
+            Intent intent = new Intent(action);
+            if (intent.resolveActivity(pm) != null) out.add(intent);
+        }
+        List<ActivityInfo> quick = new ArrayList<>(), notes = new ArrayList<>();
+        for (String pkg : PANEL_PACKAGES) {
             try {
                 android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES);
-                if (info.activities == null) continue;
-                List<ActivityInfo> found = new ArrayList<>();
+                if (info.activities == null || !info.applicationInfo.enabled) continue;
                 for (ActivityInfo ai : info.activities) {
                     String n = ai.name.toLowerCase(Locale.ROOT);
-                    if (ai.exported && ai.enabled && n.contains("notification") && !n.contains("setting")) found.add(ai);
+                    if (!ai.exported || !ai.enabled) continue;
+                    if (quickName(n)) quick.add(ai);
+                    else if (notificationName(n)) notes.add(ai);
                 }
-                Collections.sort(found, (x, y) -> Boolean.compare(!x.name.contains("Panel"), !y.name.contains("Panel")));
-                for (ActivityInfo ai : found) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
             } catch (PackageManager.NameNotFoundException | RuntimeException ignored) {
             }
         }
-        out.add(new Intent().setComponent(new ComponentName("com.google.android.tvlauncher",
-                "com.google.android.tvlauncher.notifications.NotificationsSidePanelActivity")));
+        for (ActivityInfo ai : quick) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
+        for (ActivityInfo ai : notes) out.add(new Intent().setComponent(new ComponentName(ai.packageName, ai.name)));
         return out;
     }
 
+    /**
+     * The quick panel / notifications button. In order, the first that works: the panel's own activity, if the TV has
+     * it on; the system bar's panels through the TV's own ADB (checked: our home screen must lose the focus); and
+     * last the TV's Wi-Fi settings, so the button always opens something.
+     */
     private static boolean openNotifications(Activity a, View from, int x, int y, int w, int h) {
-        for (Intent intent : notificationIntents(a)) {
+        for (Intent intent : panelIntents(a)) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
                 a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+                AppLog.w("panel: opened " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()));
                 return true;
             } catch (ActivityNotFoundException | SecurityException e) {
-                AppLog.w("notifications: " + intent.getComponent() + " didn't open: " + e.getMessage());
+                AppLog.w("panel: " + (intent.getComponent() != null ? intent.getComponent() : intent.getAction()) + " didn't open: " + e.getMessage());
             }
         }
-        return false;
+        final Context app = a.getApplicationContext();
+        new Thread(() -> {
+            if (HomeMode.expandPanel(app)) return;
+            a.runOnUiThread(() -> {
+                try {
+                    a.startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (ActivityNotFoundException | SecurityException e) {
+                    AppLog.w("panel: Wi-Fi settings didn't open: " + e.getMessage());
+                }
+            });
+        }, "panel").start();
+        return true;
     }
 
     /**

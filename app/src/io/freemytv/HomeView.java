@@ -161,7 +161,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final android.graphics.Rect cropRect = new android.graphics.Rect();
     private final RectF cropCell = new RectF();
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
-    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
+    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lInfo, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
 
     // Shelf
@@ -696,6 +696,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
+        lInfo = Ui.numbers(Ui.regular, 24 * k, L_FAINT);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
         lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
@@ -1060,6 +1061,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle.setColor(tone(L_INK, WHITE));
         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
+        lInfo.setColor(tone(L_FAINT, 0xB8FFFFFF));
         lTip.setColor(tone(L_INK, WHITE));
         lDate.setColor(tone(L_DIM, 0xFF98989D));
         lClock.setColor(tone(L_INK, WHITE));
@@ -1304,6 +1306,74 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private Quotes quotes;
+
+    private String infoText = "", infoCompact = "", infoCity = "", infoLang = "";
+    private float infoW, infoCompactW, infoHalfCap;
+    private long infoMinute = -1, infoWeatherAt = -1;
+    private int infoPrefs = -1;
+
+    /** The info line's text: the day, the time, the weather and the city (from Home Settings). Built once a minute. */
+    private void refreshInfo() {
+        long now = System.currentTimeMillis();
+        if (now / 60_000 == infoMinute && data.weatherAt == infoWeatherAt && Prefs.version == infoPrefs
+                && Ui.language.equals(infoLang)) return;
+        infoMinute = now / 60_000;
+        infoWeatherAt = data.weatherAt;
+        infoPrefs = Prefs.version;
+        infoLang = Ui.language;
+        String gap = "      ", city = Prefs.city(), time = Ui.clock(now);
+        StringBuilder full = new StringBuilder(Ui.dateLong(now)).append(gap).append(time);
+        StringBuilder compact = new StringBuilder(time);
+        HomeData.Weather wx = data.weather;
+        if (Prefs.weather() && !Double.isNaN(wx.temp)) {
+            String temp = HomeData.degrees(wx.temp), condition = HomeData.condition(wx.code, wx.isDay);
+            full.append(gap).append(temp).append(' ').append(condition);
+            compact.append(gap).append(temp);
+        }
+        if (!city.isEmpty()) {
+            full.append(gap).append(city);
+            compact.append(gap).append(city);
+        }
+        infoText = full.toString();
+        infoCompact = compact.toString();
+        infoCity = city;
+        infoW = lInfo.measureText(infoText);
+        infoCompactW = lInfo.measureText(infoCompact);
+        infoHalfCap = Ui.halfCap(lInfo);
+    }
+
+    /**
+     * Where the crypto prices used to be: on the tab bar, the day, the time, the weather and the city at the right end.
+     * It gives way to the shorter text when the long one would run into the tabs. Under the big clock (no TMDB key:
+     * the clock already shows the day and the weather) only the city.
+     */
+    private void drawInfo(Canvas c) {
+        if (lInfo == null) return;
+        boolean clock = !picksOn();
+        applyTone();
+        float fade = 1;
+        for (int i = 3; i < 3 + BUTTONS && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
+        if (fade <= 0.01f) return;
+        refreshInfo();
+        if (clock) {
+            if (infoCity.isEmpty()) return;
+            int color = lClockQuote.getColor();
+            lClockQuote.setColor(Ui.alpha(color, fade));
+            c.drawText(infoCity, MARGIN * k, L_QUOTES_BASE * k, lClockQuote);
+            lClockQuote.setColor(color);
+            return;
+        }
+        float right = platterRect.isEmpty() ? CONTENT_R * k : platterRect.right - SHELF_PAD * k;
+        float room = right - topRects[2].right - 48 * k;
+        boolean full = infoW <= room;
+        String text = full ? infoText : infoCompact;
+        float width = full ? infoW : infoCompactW;
+        if (width > room) return;
+        int color = lInfo.getColor();
+        lInfo.setColor(Ui.alpha(color, fade));
+        c.drawText(text, right - width, (L_TABBAR_TOP + L_TABBAR_H / 2) * k + infoHalfCap, lInfo);
+        lInfo.setColor(color);
+    }
 
     /** Coin logo + price in the configured currency, in a row at the right end of the tab bar. */
     private void drawQuotes(Canvas c) {
@@ -3003,7 +3073,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
-            if (HomeData.coinCount() > 0) drawQuotes(c);
+            drawInfo(c);
             return;
         }
         String hello = Ui.tr("Para você", "For You");
@@ -3033,7 +3103,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
         drawCarousel(c);
-        if (HomeData.coinCount() > 0) drawQuotes(c);
+        drawInfo(c);
     }
 
     private boolean picksOn() {
