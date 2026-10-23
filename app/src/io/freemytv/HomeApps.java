@@ -111,6 +111,17 @@ final class HomeApps {
             "com.disney.starplus",                  // Star+ (merged into Disney+)
             "com.tcl.exhibit"));                    // TCL: T-Exhibition
 
+    /**
+     * Own icons: a picture (png, jpg, jpeg or webp) in the app's own folder, named after the app's package:
+     * /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png. It replaces that app's icon on the shelf and
+     * under it. The picture is center-cropped to the tile's shape (5:3 on the shelf, 16:9 under it); a 5:3 picture
+     * (for example 1500 × 900) fits the shelf without losing anything. Remove the file and the original icon returns.
+     */
+    private static final String[] ICON_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"};
+    /** Size of an own icon on the shelf (5:3, big enough for the focused tile at 4K). */
+    static final int SHELF_ICON_W = 540, SHELF_ICON_H = 324;
+    private static final Map<String, Bitmap> OWN = new HashMap<>();    // "file|WxH|modified" → ready icon
+
     private static final Map<String, Bitmap> TILES = new HashMap<>();   // key → ready card
     private static final Map<String, Bitmap> LOGOS = new HashMap<>();   // key → colored logo with no background
 
@@ -144,9 +155,71 @@ final class HomeApps {
                 it.logoDark = ownLogoCached(c, d[0] + "-dark");
                 it.logoScale = Float.parseFloat(d[5]);
             }
+            // The person's own picture for this app, if there is one in the icons folder.
+            Bitmap own = ownIcon(c, pkg, it.key, SHELF_ICON_W, SHELF_ICON_H);
+            if (own != null) {
+                it.tile = own;
+                it.logo = null;
+                it.logoDark = null;
+            }
             items.add(it);
         }
         return items;
+    }
+
+    /** The folder for own icons (created if missing); null when the TV has no app storage. */
+    static File iconsDir(Context c) {
+        File dir = c.getExternalFilesDir("icons");
+        if (dir != null && !dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    /** The person's own icon for an app (by package, or by key such as "netflix"), cropped to w × h; null if none. */
+    private static synchronized Bitmap ownIcon(Context c, String pkg, String key, int w, int h) {
+        File dir = iconsDir(c);
+        if (dir == null || !dir.isDirectory()) return null;
+        String[] names = key == null || key.equals(pkg) ? new String[] {pkg} : new String[] {pkg, key};
+        File file = null;
+        for (String name : names) {
+            for (String ext : ICON_EXTENSIONS) {
+                File f = new File(dir, name + ext);
+                if (f.isFile() && f.length() > 0) {
+                    file = f;
+                    break;
+                }
+            }
+            if (file != null) break;
+        }
+        if (file == null) return null;
+        String prefix = file.getPath() + "|" + w + "x" + h + "|", cacheKey = prefix + file.lastModified();
+        Bitmap cached = OWN.get(cacheKey);
+        if (cached != null) return cached;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getPath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (bounds.outWidth / (opts.inSampleSize * 2) >= w && bounds.outHeight / (opts.inSampleSize * 2) >= h) opts.inSampleSize *= 2;
+            Bitmap src = BitmapFactory.decodeFile(file.getPath(), opts);
+            if (src == null) return null;
+            // Center-crop to the tile's shape, then scale to the exact size.
+            float want = (float) w / h, have = (float) src.getWidth() / src.getHeight();
+            int cw = want < have ? Math.round(src.getHeight() * want) : src.getWidth();
+            int ch = want < have ? src.getHeight() : Math.round(src.getWidth() / want);
+            Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
+            Bitmap icon = Bitmap.createScaledBitmap(crop, w, h, true);
+            if (crop != src) src.recycle();
+            if (icon != crop) crop.recycle();
+            if (!icon.isMutable()) icon = icon.copy(Bitmap.Config.ARGB_8888, true);   // the tiles are drawn like the other cards
+            icon.setHasMipMap(true);
+            OWN.keySet().removeIf(k -> k.startsWith(prefix));     // an older version of the same picture
+            OWN.put(cacheKey, icon);
+            return icon;
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
     }
 
     private static String[] known(String pkg) {
@@ -162,6 +235,17 @@ final class HomeApps {
         PackageManager pm = c.getPackageManager();
         for (String[] d : SHELF) if (out.size() < MAX_SHELF && launchIntent(pm, d[2]) != null) out.add(d[2]);
         return out;
+    }
+
+    /** The packages the shelf really shows right now: the first MAX_SHELF of its list that can be opened. */
+    static Set<String> onShelf(Context c) {
+        PackageManager pm = c.getPackageManager();
+        Set<String> shown = new HashSet<>();
+        for (String pkg : shelfPackages(c)) {
+            if (shown.size() >= MAX_SHELF) break;
+            if (launchIntent(pm, pkg) != null) shown.add(pkg);
+        }
+        return shown;
     }
 
     /** Every app the shelf could hold, as {package, name}: the ones from SHELF first, then the other TV apps by name. */
@@ -324,9 +408,9 @@ final class HomeApps {
     static List<Item> others(Context c) {
         PackageManager pm = c.getPackageManager();
         Set<String> skip = new HashSet<>();
-        // A built-in app is skipped only while it is on the shelf: one the person took off must still be listed here.
-        List<String> onShelf = shelfPackages(c);
-        for (String[] d : SHELF) if (onShelf.contains(d[2])) skip.add(d[2]);
+        // An app is skipped only while it is on the shelf (any app, built-in or picked in Settings > Shelf): one the
+        // person takes off the shelf comes back here, with the rest.
+        skip.addAll(onShelf(c));
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
@@ -341,7 +425,8 @@ final class HomeApps {
             it.pkg = pkg;
             it.key = pkg;
             it.label = String.valueOf(ri.loadLabel(pm));
-            it.tile = appTile(c, null, pkg, 0);
+            Bitmap own = ownIcon(c, pkg, pkg, TILE_W, TILE_H);
+            it.tile = own != null ? own : appTile(c, null, pkg, 0);
             items.add(it);
         }
         Collections.sort(items, (a, b) -> a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT)));

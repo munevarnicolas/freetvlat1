@@ -126,6 +126,21 @@ Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`:
 
 Free, and it takes two minutes: create an account at [themoviedb.org](https://www.themoviedb.org/signup), then open [Settings → API](https://www.themoviedb.org/settings/api) and request a developer key. Paste the *API Read Access Token* (or the *API Key*) after `tmdb_key=`. It's your key: `config.properties` stays out of git.
 
+## Own icons
+
+[#own-icons](#own-icons)
+
+Any app's icon, on the shelf and under it, can be a picture you choose (png, jpg, jpeg or webp). Name the file after the
+app's package and put it in the app's icons folder on the TV:
+
+```
+adb push netflix.png /sdcard/Android/data/io.freemytv/files/icons/com.netflix.ninja.png
+```
+
+The picture is center-cropped to the tile (5:3 on the shelf, 16:9 under it), so a 5:3 picture such as 1500 × 900 fits
+the shelf without losing anything. Press Home on the TV (or reopen Free My TV) to see it. Delete the file and the
+original icon comes back. `adb shell pm list packages` lists the package names.
+
 ## Going back
 
 On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.

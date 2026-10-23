@@ -227,7 +227,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Apps under the shelf: the grid, then the drawer's row and widgets. The open drawer scrolls (dscroll, in 1080p px).
     private Spring[] appFocus = new Spring[0];
     private RectF[] appRects = new RectF[0];
-    private String[] appLabels;
     private int appIndex;
     private final Spring dscroll = new Spring(0.34f, 1f, 0);
     private final RectF openRect = new RectF();
@@ -363,14 +362,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             long now = SystemClock.uptimeMillis();
             boolean busy = sheetOpen || drawerOpen || reordering || (zone == Z_CARDS && now - keyAt < CAROUSEL_PAUSE_MS);
             if (!cards.isEmpty() && !busy && now - carouselAt >= CAROUSEL_MS - 500) {
-                if (cardIndex + 1 >= cards.size()) {
-                    cardIndex = 0;
-                    carousel.snap(0);      // back to the start: the background cross-fades, the cards don't sweep back
-                    carouselAt = now;
-                    cardsMoved();
-                } else {
-                    setCard(cardIndex + 1);
-                }
+                setCard(cardIndex + 1);     // after the last title comes the first one again
             }
             handler.postDelayed(this, CAROUSEL_MS);
         }
@@ -514,10 +506,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
-        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
-                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
+        // Left to right: FreeTV settings, then Android settings (the last one sits at the right edge).
         lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings",
                 Ui.tr("Ajustes do FreeTV", "FreeTV Settings", "Ajustes de FreeTV"), "settings"));
+        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings",
+                Ui.tr("Configurações do Android", "Android Settings", "Configuración de Android"), "tv_settings"));
     }
 
     private static String[] tabs() {
@@ -1591,16 +1584,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
     }
 
-    /** The apps that are not on the shelf, in rows under it: 16:9 tiles; the focused one grows and shows its name. */
+    /** The apps that are not on the shelf, in rows under it: 16:9 tiles; the focused one grows. */
     private void drawApps(Canvas c) {
         int n = Math.min(others.size(), appRects.length);
         if (n == 0) return;
-        if (appLabels == null || appLabels.length != n) {
-            appLabels = new String[n];
-            for (int i = 0; i < n; i++) {
-                appLabels[i] = TextUtils.ellipsize(others.get(i).label, gridLabel, appRects[i].width() + 24 * k, TextUtils.TruncateAt.END).toString();
-            }
-        }
         int top = -1;
         for (int i = 0; i < n; i++) if (appFocus[i].value > 0.02f && (top < 0 || appFocus[i].value > appFocus[top].value)) top = i;
         for (int i = 0; i < n; i++) if (i != top) drawAppTile(c, i);
@@ -1610,11 +1597,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawAppTile(Canvas c, int i) {
         float f = appFocus[i].value;
         RectF base = appRects[i];
+        // No name under the icon (the icons are the apps' own art, or a picture you chose); TalkBack still reads it.
         drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, f, 0.08f);
-        if (f > 0.02f) {
-            gridLabel.setColor(drawerInk(Ui.clamp(f)));
-            c.drawText(appLabels[i], base.centerX(), base.bottom + (40 + 6 * Ui.clamp(f)) * k, gridLabel);
-        }
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1860,7 +1844,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             appFocus[i] = new Spring(0.3f, 0.82f, 0);
             appRects[i] = new RectF();
         }
-        appLabels = null;
         appIndex = Math.min(appIndex, Math.max(0, list.size() - 1));
         if (list.isEmpty() && zone == Z_APPS) zone = drawerOpen ? Z_DRAWER : Z_SHELF;
         layoutDrawer();
@@ -2572,7 +2555,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
-        for (int i = 0; i < Math.min(3, cards.size() - cardIndex); i++) out.add(a11yId(Z_CARDS, i));
+        for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < others.size(); i++) out.add(a11yId(Z_APPS, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
@@ -2589,7 +2572,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_TOP:
                 if (i >= 3) return label(lightButtons, i - 3);
                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
-            case Z_CARDS: return cardIndex + i < cards.size() ? pickText(cards.get(cardIndex + i)) : "";
+            case Z_CARDS: return i < Math.min(3, cards.size()) ? pickText(cards.get((cardIndex + i) % cards.size())) : "";
             case Z_SHELF:
                 if (reordering && i == shelfIndex) {
                     return Ui.tr("Movendo ", "Moving ", "Moviendo ") + label(shelf, i)
@@ -2626,7 +2609,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 dy = (i < 3 ? heroLayer : status).getTranslationY();
                 break;
             case Z_CARDS:
-                if (i >= Math.min(3, cards.size() - cardIndex)) return false;
+                if (i >= Math.min(3, cards.size())) return false;
                 a11yRect.set(cardRects[i]);
                 dy = heroLayer.getTranslationY();
                 break;
@@ -2725,7 +2708,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i < 3) selectTab(i);
                 break;
             case Z_CARDS:
-                if (cardIndex + i >= cards.size()) return;
+                if (i >= cards.size()) return;
                 if (drawerOpen) closeDrawer();
                 setCard(cardIndex + i);
                 break;
@@ -2821,8 +2804,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             int at = -1;
             for (int i = 0; keep != null && i < list.size(); i++) if (Recs.key(list.get(i)).equals(keep)) at = i;
             cardIndex = at >= 0 ? at : Math.min(cardIndex, Math.max(0, list.size() - 1));
-            carousel.target = cardIndex;
-            if (at < 0) carousel.snap(cardIndex);
+            carousel.snap(cardIndex);
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
                 retarget(false);
@@ -2833,8 +2815,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The card at the left changed (or the list did): its details and the ones next to it are made ready; the background follows. */
     private void cardsMoved() {
-        int from = Math.max(0, cardIndex - 1), to = Math.min(cards.size(), cardIndex + 7);
-        List<Recs.Pick> window = new ArrayList<>(cards.subList(from, Math.max(from, to)));
+        // The titles around the one at the left, going round the end of the list (it is endless).
+        List<Recs.Pick> window = new ArrayList<>();
+        for (int i = -1; i < 7 && window.size() < cards.size(); i++) window.add(cards.get(Math.floorMod(cardIndex + i, cards.size())));
         recs.ensure(window);
         for (Recs.Pick p : window) if (p.detailed) recs.backdrop(p);
         Recs.Pick current = cards.isEmpty() ? null : cards.get(cardIndex);
@@ -2846,11 +2829,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The carousel goes to a card (the arrows, TalkBack or the automatic advance). */
     private void setCard(int index) {
-        if (cards.isEmpty()) return;
-        index = Math.max(0, Math.min(cards.size() - 1, index));
+        int n = cards.size();
+        if (n == 0) return;
+        index = Math.floorMod(index, n);
         if (index == cardIndex) return;
+        // Endless: the position keeps growing (or shrinking) and the title shown is the position modulo the list, so
+        // from the last title one step goes on to the first, the short way round.
+        int delta = index - cardIndex;
+        if (delta > n / 2) delta -= n;
+        else if (delta < -n / 2) delta += n;
         cardIndex = index;
-        carousel.target = index;
+        carousel.target += delta;
+        float lap = (float) Math.floor(carousel.target / n) * n;     // whole laps change nothing on screen: keep the numbers small
+        if (lap != 0) {
+            carousel.value -= lap;
+            carousel.target -= lap;
+        }
         carouselAt = SystemClock.uptimeMillis();
         wake();
         cardsMoved();
@@ -2991,10 +2985,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         float pos = carousel.value;
-        int first = Math.max(0, (int) Math.floor(pos) - 1), last = Math.min(n - 1, (int) Math.floor(pos) + 4);
-        int front = Math.max(0, Math.min(n - 1, Math.round(pos)));
-        for (int j = first; j <= last; j++) if (j != front) drawCarouselCard(c, j, j - pos);
-        if (front >= first && front <= last) drawCarouselCard(c, front, front - pos);
+        // `j` is a position on the endless strip; the title is j modulo the list (and never the same one twice at once).
+        int first = (int) Math.floor(pos) - 1, last = Math.min((int) Math.floor(pos) + 4, first + n - 1);
+        int front = Math.round(pos);
+        for (int j = first; j <= last; j++) if (j != front) drawCarouselCard(c, Math.floorMod(j, n), j - pos);
+        if (front >= first && front <= last) drawCarouselCard(c, Math.floorMod(front, n), front - pos);
     }
 
     private void drawCarouselCard(Canvas c, int j, float rel) {
@@ -3133,9 +3128,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 break;
             case Z_CARDS:
                 if (dx != 0) {
-                    int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) return true;
-                    setCard(next);
+                    if (cards.size() < 2) return true;
+                    setCard(cardIndex + dx);     // endless: → on the last title goes to the first, ← on the first to the last
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
@@ -3151,13 +3145,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     topIndex = next;
                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
                 } else if (dy > 0) {
-                    if (cards.isEmpty()) {
+                    if (topIndex >= 3 && picksOn()) {
+                        topIndex = tab;         // from the buttons at the top right, back down to the tabs
+                    } else if (cards.isEmpty()) {
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;
                     }
                 } else {
-                    return true;
+                    if (topIndex >= 3 || !picksOn()) return true;    // already at the top
+                    topIndex = 3;               // ↑ on Explore, Movies or Shows: to the buttons at the top right
                 }
                 break;
             default:

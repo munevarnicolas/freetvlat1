@@ -23,6 +23,8 @@ import android.graphics.Shader;
  */
 final class Backdrop {
     static final int W = 1920, H = 1080, FW = 192, FH = 108, GW = 480, GH = 270;
+    /** The light and night backgrounds: 480 × 270, so they are stretched 4× on screen (the 192 × 108 frost was 10×). */
+    static final int BW = 480, BH = 270;
     /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
     static final int WIDE_W = 1092, WIDE_H = 464, TALL_W = 336, TALL_H = 464;
     final Bitmap image;
@@ -35,7 +37,7 @@ final class Backdrop {
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
-                     int[] night, int[] nightGlass) {
+                     int[] night, int[] nightGlass, int[] lightBg, int[] nightBg) {
         this.image = image;
         this.frost = frost;
         this.glass = glass;
@@ -45,8 +47,8 @@ final class Backdrop {
         this.lightGlass = lightGlass;
         this.nightFrost = night;
         this.nightGlass = nightGlass;
-        lightImage = light == null ? null : Bitmap.createBitmap(light, FW, FH, Bitmap.Config.ARGB_8888);
-        nightImage = night == null ? null : Bitmap.createBitmap(night, FW, FH, Bitmap.Config.ARGB_8888);
+        lightImage = lightBg == null ? null : Bitmap.createBitmap(lightBg, BW, BH, Bitmap.Config.ARGB_8888);
+        nightImage = nightBg == null ? null : Bitmap.createBitmap(nightBg, BW, BH, Bitmap.Config.ARGB_8888);
     }
 
     static Backdrop make(Bitmap src, boolean forLight) {
@@ -61,13 +63,18 @@ final class Backdrop {
             // Light design: everything comes from the photo without scrims.
             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
             int[] frost = reduce(out, FW, FH, 3, 3);
-            int[] light = lighten(frost.clone(), 0.40f, 0.32f, 1.5f);
+            // The background: a much softer blur at a higher resolution than the frost (box radius 12 on 480 px is
+            // about 50 px on screen), so there are no creases from stretching a tiny image and the colors flow like
+            // tvOS 26's. Day: pastel (light, but with the photo's hue and a good part of its color); night: darkened.
+            int[] soft = reduce(out, BW, BH, 12, 3);
+            int[] light = pastel(soft.clone());
             int[] glass = reduce(out, GW, GH, 2, 2);
-            int[] lightGlass = lighten(glass.clone(), 0.50f, 0.28f, 1.3f);
+            int[] lightGlass = pastel(glass.clone());     // the glass shows the same tones as the background around it
             int[] night = darken(frost.clone(), 0.76f);
+            int[] nightBg = darken(soft, 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
             out.recycle();
-            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
+            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, light, nightBg);
         }
 
         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
@@ -94,7 +101,7 @@ final class Backdrop {
 
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null, null, null);
     }
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
@@ -179,7 +186,44 @@ final class Backdrop {
     }
 
     /**
-     * Day look, like tvOS 26: lighter than the photo but keeping its color and its gradient. The photo's colors are
+     * Day look: the photo's hue at a high lightness, like the pastel backgrounds of tvOS 26. Mixing with white (see
+     * lighten) washes the color out in proportion; here the lightness is set directly (0.76 to 0.94, brighter where the
+     * photo is brighter, so its gradient stays) and the saturation is lifted (more for muted colors than for vivid
+     * ones, and capped so it never turns neon). The dark text (1D1D1F and 6E6E73) keeps its contrast: the result is
+     * never darker than about 0.76 lightness.
+     */
+    private static int[] pastel(int[] px) {
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i];
+            float r = ((p >> 16) & 255) / 255f, g = ((p >> 8) & 255) / 255f, b = (p & 255) / 255f;
+            float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+            float l = (max + min) / 2, d = max - min;
+            float s = d < 1e-4f ? 0 : d / (1 - Math.abs(2 * l - 1));
+            float hue = 0;
+            if (d >= 1e-4f) {
+                if (max == r) hue = ((g - b) / d) % 6;
+                else if (max == g) hue = (b - r) / d + 2;
+                else hue = (r - g) / d + 4;
+                if (hue < 0) hue += 6;
+            }
+            float ls = 0.76f + 0.18f * Math.max(0, Math.min(1, l));
+            float ss = Math.min(0.82f, (1 - (float) Math.pow(1 - Math.min(1, s), 1.8)) * 0.9f);
+            // HSL → RGB
+            float c = (1 - Math.abs(2 * ls - 1)) * ss, x = c * (1 - Math.abs(hue % 2 - 1)), m = ls - c / 2;
+            float rr, gg, bb;
+            if (hue < 1) { rr = c; gg = x; bb = 0; }
+            else if (hue < 2) { rr = x; gg = c; bb = 0; }
+            else if (hue < 3) { rr = 0; gg = c; bb = x; }
+            else if (hue < 4) { rr = 0; gg = x; bb = c; }
+            else if (hue < 5) { rr = x; gg = 0; bb = c; }
+            else { rr = c; gg = 0; bb = x; }
+            px[i] = 0xFF000000 | (Math.round((rr + m) * 255) << 16) | (Math.round((gg + m) * 255) << 8) | Math.round((bb + m) * 255);
+        }
+        return px;
+    }
+
+    /**
+     * Previous day look (kept for reference, no longer used): lighter than the photo but keeping its color and its gradient. The photo's colors are
      * saturated a little, then mixed with white: dark areas get more white (so the dark text reads), bright ones keep
      * more of their color. A flat 82 % of white (the old look) erased the photo's gradient.
      */
