@@ -25,6 +25,13 @@ final class German {
             case "For You": return "Für dich";
             case "Couldn't open ": return "Konnte nicht öffnen: ";
             case "No trailer available for this title": return "Für diesen Titel ist kein Trailer verfügbar";
+            case "← → ↑ ↓ to move · OK to drop · Back to cancel": return "← → ↑ ↓ verschieben · OK ablegen · Zurück abbrechen";
+            case "Hide from All Apps": return "In „Alle Apps“ ausblenden";
+            case "Hidden: ": return "Ausgeblendet: ";
+            case "No hidden apps": return "Keine ausgeblendeten Apps";
+            case "Hidden apps (choose one to show it again)": return "Ausgeblendete Apps (zum Einblenden wählen)";
+            case "Shown again: ": return "Wieder sichtbar: ";
+            case "Release OK to see the hidden apps": return "OK loslassen, um ausgeblendete Apps zu sehen";
             case "Couldn't open the trailer": return "Der Trailer konnte nicht geöffnet werden";
             case " of ": return " von ";
             case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";

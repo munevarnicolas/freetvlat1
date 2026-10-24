@@ -1,0 +1,757 @@
+diff --git a/README.md b/README.md
+index 5b98fb4..f041914 100644
+--- a/README.md
++++ b/README.md
+@@ -19,7 +19,7 @@ Open source. Built with Claude Code. One button to undo.
+ 
+ - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
+ - **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
+-- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs. OK on a pick opens its trailer on YouTube, in SmartTube.
++- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs. OK on a pick opens its trailer on YouTube, in SmartTube. Explore shows what's trending this week, Movies and Shows the most popular ones, with a different selection every 12 hours.
+ - **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
+ - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
+ - **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
+diff --git a/app/src/io/freemytv/German.java b/app/src/io/freemytv/German.java
+index 0f2003a..de3795a 100644
+--- a/app/src/io/freemytv/German.java
++++ b/app/src/io/freemytv/German.java
+@@ -25,6 +25,13 @@ final class German {
+             case "For You": return "Für dich";
+             case "Couldn't open ": return "Konnte nicht öffnen: ";
+             case "No trailer available for this title": return "Für diesen Titel ist kein Trailer verfügbar";
++            case "← → ↑ ↓ to move · OK to drop · Back to cancel": return "← → ↑ ↓ verschieben · OK ablegen · Zurück abbrechen";
++            case "Hide from All Apps": return "In „Alle Apps“ ausblenden";
++            case "Hidden: ": return "Ausgeblendet: ";
++            case "No hidden apps": return "Keine ausgeblendeten Apps";
++            case "Hidden apps (choose one to show it again)": return "Ausgeblendete Apps (zum Einblenden wählen)";
++            case "Shown again: ": return "Wieder sichtbar: ";
++            case "Release OK to see the hidden apps": return "OK loslassen, um ausgeblendete Apps zu sehen";
+             case "Couldn't open the trailer": return "Der Trailer konnte nicht geöffnet werden";
+             case " of ": return " von ";
+             case "← → to move · OK to drop · Back to cancel": return "← → verschieben · OK ablegen · Zurück abbrechen";
+diff --git a/app/src/io/freemytv/HomeApps.java b/app/src/io/freemytv/HomeApps.java
+index 970e772..303f650 100644
+--- a/app/src/io/freemytv/HomeApps.java
++++ b/app/src/io/freemytv/HomeApps.java
+@@ -571,6 +571,7 @@ final class HomeApps {
+         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
+         skip.add(c.getPackageName());
+         skip.addAll(HIDDEN);
++        skip.addAll(Prefs.appsHidden());       // the ones the person hid from All Apps
+         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+         List<Item> items = new ArrayList<>();
+         Set<String> seen = new HashSet<>();
+@@ -586,7 +587,15 @@ final class HomeApps {
+             it.tile = own != null ? own : appTile(c, null, pkg, 0);
+             items.add(it);
+         }
+-        Collections.sort(items, (a, b) -> a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT)));
++        // The person's own order first (moved with OK held); the rest by name.
++        final List<String> order = Prefs.appsOrder();
++        Collections.sort(items, (a, b) -> {
++            int ia = order.indexOf(a.pkg), ib = order.indexOf(b.pkg);
++            if (ia < 0) ia = Integer.MAX_VALUE;
++            if (ib < 0) ib = Integer.MAX_VALUE;
++            if (ia != ib) return Integer.compare(ia, ib);
++            return a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT));
++        });
+         synchronized (HomeApps.class) {
+             TILES.keySet().removeIf(k -> k.contains(".") && !seen.contains(k));
+         }
+diff --git a/app/src/io/freemytv/HomeView.java b/app/src/io/freemytv/HomeView.java
+index 577ef38..01c2ef7 100644
+--- a/app/src/io/freemytv/HomeView.java
++++ b/app/src/io/freemytv/HomeView.java
+@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
+ import android.app.Activity;
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.pm.PackageManager;
+ import android.content.SharedPreferences;
+ import android.graphics.Bitmap;
+ import android.graphics.BitmapShader;
+@@ -190,6 +191,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     private static final long HOLD_MS = 500, WIGGLE_MS = 300;
+     private static final float LIFT_GROW = 0.08f, WIGGLE_DEG = 1.5f;
+     private boolean reordering, reorderAnim, okHeld, holdArmed;
++    /** Moving an app in All Apps (the drawer's rows or the sheet): the list as it was, to put it back on Back. */
++    private boolean reorderApps;
++    private List<HomeApps.Item> appsOrigin;
+     private int liftIndex = -1;
+     private long reorderAt;
+     private float wiggle;
+@@ -214,7 +218,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         okHeld = true;                  // the release must not open the app
+         iconPending = true;
+         click.open();
+-        showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
++        if (iconItem.kind == HomeApps.SETTINGS) {
++            showToast(Ui.tr("Solte o OK para ver os apps ocultos", "Release OK to see the hidden apps", "Suelta OK para ver las apps ocultas"));
++        } else {
++            showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
++        }
+     }
+ 
+     /** The app under the focus, if its icon can be changed. */
+@@ -227,14 +235,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         } else if (zone == Z_APPS) {
+             if (appIndex < others.size()) it = others.get(appIndex);
+         }
++        if (it != null && it.kind == HomeApps.SETTINGS && others.contains(it)) return it;   // the Free My TV tile: the hidden apps
+         return it != null && it.kind == HomeApps.APP && it.pkg != null ? it : null;
+     }
+ 
+     private void showIconDialog(final HomeApps.Item it) {
++        if (it.kind == HomeApps.SETTINGS) {
++            showHiddenApps();
++            return;
++        }
+         final boolean own = HomeApps.hasOwnIcon(getContext(), it.pkg, it.key);
++        final boolean inAll = others.contains(it);     // an app of All Apps (not one on the shelf): it can be hidden
+         final List<String> labels = new ArrayList<>();
+         labels.add(Ui.tr("Escolher imagem…", "Choose an image…", "Elegir imagen…"));
+         if (own) labels.add(Ui.tr("Restaurar o ícone original", "Restore the original icon", "Restaurar el icono original"));
++        if (inAll) labels.add(Ui.tr("Ocultar de Todos os Apps", "Hide from All Apps", "Ocultar de Todas las apps"));
+         new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                 .setTitle(Ui.tr("Ícone de ", "Icon for ", "Icono de ") + it.label)
+                 .setItems(labels.toArray(new String[0]), (d, which) -> {
+@@ -248,6 +263,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                             HomeApps.pendingIconPkg = null;
+                             showToast(Ui.tr("Nenhum app para escolher arquivos", "No app to pick files", "No hay app para elegir archivos"));
+                         }
++                    } else if (inAll && which == labels.size() - 1) {
++                        hideApp(it);
+                     } else {
+                         HomeApps.removeOwnIcon(getContext(), it.pkg, it.key);
+                         showToast(Ui.tr("Ícone original restaurado", "Original icon restored", "Icono original restaurado"));
+@@ -257,6 +274,47 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+                 .show();
+     }
+ 
++    /** Takes the app out of All Apps (it stays installed; the Free My TV tile brings it back). */
++    private void hideApp(HomeApps.Item it) {
++        Prefs.hideApp(it.pkg);
++        List<HomeApps.Item> rest = new ArrayList<>(others);
++        rest.remove(it);
++        setOthers(rest);
++        showToast(Ui.tr("Oculto: ", "Hidden: ", "Oculta: ") + it.label);
++    }
++
++    /** The apps the person hid: choosing one shows it in All Apps again. */
++    private void showHiddenApps() {
++        final List<String> hidden = Prefs.appsHidden();
++        PackageManager pm = getContext().getPackageManager();
++        final List<String> packages = new ArrayList<>(), labels = new ArrayList<>();
++        for (String pkg : hidden) {
++            try {
++                labels.add(String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0))));
++                packages.add(pkg);
++            } catch (PackageManager.NameNotFoundException e) {
++                Prefs.showApp(pkg);     // uninstalled since: nothing to show
++            }
++        }
++        if (packages.isEmpty()) {
++            showToast(Ui.tr("Nenhum app oculto", "No hidden apps", "No hay apps ocultas"));
++            return;
++        }
++        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
++                .setTitle(Ui.tr("Apps ocultos (escolha um para mostrar)", "Hidden apps (choose one to show it again)",
++                        "Apps ocultas (elige una para mostrarla)"))
++                .setItems(labels.toArray(new String[0]), (d, which) -> {
++                    Prefs.showApp(packages.get(which));
++                    showToast(Ui.tr("De volta: ", "Shown again: ", "Visible otra vez: ") + labels.get(which));
++                    final Context c = getContext().getApplicationContext();
++                    LOADER.execute(() -> {
++                        final List<HomeApps.Item> o = HomeApps.others(c);
++                        handler.post(() -> setOthers(o));
++                    });
++                })
++                .show();
++    }
++
+     /** The file picker answered (HomeActivity.onActivityResult): the chosen picture becomes the app's icon. */
+     void iconPicked(int resultCode, Intent data) {
+         final String pkg = HomeApps.pendingIconPkg;
+@@ -1059,7 +1117,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         lCardTitle.setColor(tone(L_INK, WHITE));
+         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
+         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
+-        lInfo.setColor(tone(L_FAINT, 0xB8FFFFFF));
++        lInfo.setColor(tone(0xFF48484A, 0xE6FFFFFF));   // firmer than the faint gray: easy to read
+         lTip.setColor(tone(L_INK, WHITE));
+         lDate.setColor(tone(L_DIM, 0xFF98989D));
+         lClock.setColor(tone(L_INK, WHITE));
+@@ -1747,7 +1805,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         float f = appFocus[i].value;
+         RectF base = appRects[i];
+         // No name under the icon (the icons are the apps' own art, or a picture you chose); TalkBack still reads it.
+-        drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, f, 0.08f);
++        boolean lifted = reorderApps && !sheetOpen && i == appIndex;
++        drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, lifted ? 1 : f, lifted ? 0.2f : 0.08f);
+     }
+ 
+     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
+@@ -2052,7 +2111,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+             float x = left + col * (GRID_W + GRID_GAP) * k;
+             gridCell.set(x, y, x + GRID_W * k, y + GRID_H * k);
+             float f = gridFocus[i].value;
+-            drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, f, 0.08f);
++            boolean lifted = reorderApps && sheetOpen && i == gridIndex;
++            drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, lifted ? 1 : f, lifted ? 0.2f : 0.08f);
+             if (sheetOpen && i == gridIndex) focusedCell.set(cell);
+             gridLabel.setColor(blend(0x99FFFFFF, 0xFFFFFFFF, Ui.clamp(f)));
+             c.drawText(gridLabels[i], gridCell.centerX(), gridCell.bottom + (40 + 6 * f) * k, gridLabel);
+@@ -2537,7 +2597,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     // MARK: - Moving apps on the shelf
+ 
++    /** An app of All Apps (the sheet, or the drawer's rows) is focused: it can be moved. */
++    private boolean canReorderApps() {
++        if (!sheetOpen && zone != Z_APPS) return false;
++        int i = sheetOpen ? gridIndex : appIndex;
++        return others.size() > 2 && i < others.size() && others.get(i).kind == HomeApps.APP && others.get(i).pkg != null;
++    }
++
+     private boolean canReorder() {
++        if (canReorderApps()) return true;
+         if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2) return false;
+         HomeApps.Item it = shelf.get(shelfIndex);
+         return it.kind == HomeApps.APP && it.pkg != null;
+@@ -2547,6 +2615,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         handler.removeCallbacks(holdStart);
+         holdArmed = false;
+         if (reordering || !canReorder()) return;
++        if (canReorderApps()) {
++            startAppsMove();
++            return;
++        }
+         wake();
+         reordering = reorderAnim = okHeld = true;
+         reorderOrigin = new ArrayList<>(shelf);
+@@ -2561,6 +2633,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+ 
+     /** Keys while moving an app: nothing else on the home screen gets them (system keys still go to the system). */
+     private boolean reorderKey(KeyEvent e, boolean down) {
++        if (reorderApps) return appsMoveKey(e, down);
+         switch (e.getKeyCode()) {
+             case KeyEvent.KEYCODE_DPAD_LEFT:
+             case KeyEvent.KEYCODE_DPAD_RIGHT:
+@@ -2604,6 +2677,125 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+         }
+     }
+ 
++    private void startAppsMove() {
++        wake();
++        reordering = reorderApps = okHeld = true;
++        appsOrigin = new ArrayList<>(others);
++        click.open();
++        showToast(Ui.tr("← → ↑ ↓ para mover · OK para soltar · Voltar para cancelar",
++                "← → ↑ ↓ to move · OK to drop · Back to cancel", "← → ↑ ↓ para mover · OK para soltar · Atrás para cancelar"));
++        gridDirty = drawerDirty = true;
++    }
++
++    /** Keys while moving an app of All Apps: the arrows move it, OK drops it, Back puts everything back. */
++    private boolean appsMoveKey(KeyEvent e, boolean down) {
++        switch (e.getKeyCode()) {
++            case KeyEvent.KEYCODE_DPAD_LEFT:
++            case KeyEvent.KEYCODE_DPAD_RIGHT:
++            case KeyEvent.KEYCODE_DPAD_UP:
++            case KeyEvent.KEYCODE_DPAD_DOWN:
++                if (down) {
++                    handler.removeCallbacks(iconHold);     // moving the app: no icon menu
++                    iconItem = null;
++                    int code = e.getKeyCode();
++                    shiftApp(code == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : code == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : 0,
++                            code == KeyEvent.KEYCODE_DPAD_UP ? -1 : code == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : 0);
++                }
++                return true;
++            case KeyEvent.KEYCODE_DPAD_CENTER:
++            case KeyEvent.KEYCODE_ENTER:
++            case KeyEvent.KEYCODE_NUMPAD_ENTER:
++                if (down && e.getRepeatCount() == 0) {
++                    handler.removeCallbacks(iconHold);
++                    iconItem = null;
++                    okDown = okHeld = false;
++                    dropReorder();
++                } else if (!down) {
++                    handler.removeCallbacks(iconHold);
++                    iconItem = null;
++                    okDown = okHeld = false;
++                }
++                return true;
++            case KeyEvent.KEYCODE_BACK:
++                if (down) {
++                    if (e.getRepeatCount() == 0) backDown = true;
++                } else {
++                    if (backDown && !e.isCanceled()) {
++                        cancelReorder(false);
++                        click.move();
++                    }
++                    backDown = false;
++                }
++                return true;
++            default:
++                return false;
++        }
++    }
++
++    /** The last app that can be moved: the Free My TV tile stays at the end. */
++    private int lastMovable() {
++        int last = others.size() - 1;
++        while (last > 0 && others.get(last).kind != HomeApps.APP) last--;
++        return last;
++    }
++
++    /** Moves the lifted app one place (← →) or one row (↑ ↓); the apps in between shift. */
++    private void shiftApp(int dx, int dy) {
++        int cols = sheetOpen ? COLUMNS : APPS_COLS;
++        int i = sheetOpen ? gridIndex : appIndex, last = lastMovable();
++        int j = dx != 0 ? i + dx : i + dy * cols;
++        if (j < 0 || (dx != 0 && j / cols != i / cols)) return;
++        if (j > last) {
++            if (dy <= 0 || i == last) return;
++            j = last;       // the last row is shorter
++        }
++        if (j == i) return;
++        HomeApps.Item it = others.remove(i);
++        others.add(j, it);
++        gridLabels = null;
++        gridDirty = drawerDirty = true;
++        if (sheetOpen) {
++            gridIndex = j;
++            retargetGrid(false);
++        } else {
++            appIndex = j;
++            retarget(false);
++        }
++        wake();
++        click.move();
++    }
++
++    /** OK: drops the app where it is and saves the order of All Apps. */
++    private void dropAppsMove() {
++        reordering = reorderApps = false;
++        click.open();
++        boolean changed = appsOrigin == null || !others.equals(appsOrigin);
++        appsOrigin = null;
++        gridDirty = drawerDirty = true;
++        if (!changed) return;
++        List<String> order = new ArrayList<>();
++        for (HomeApps.Item it : others) if (it.kind == HomeApps.APP && it.pkg != null) order.add(it.pkg);
++        Prefs.setAppsOrder(order);
++    }
++
++    /** Back (or leaving): All Apps as it was before the move. */
++    private void cancelAppsMove(boolean snap) {
++        reordering = reorderApps = false;
++        if (appsOrigin != null && appsOrigin.size() == others.size()) {
++            HomeApps.Item lifted = others.get(sheetOpen ? gridIndex : appIndex);
++            others.clear();
++            others.addAll(appsOrigin);
++            int at = Math.max(0, others.indexOf(lifted));
++            if (sheetOpen) gridIndex = at;
++            else appIndex = at;
++        }
++        appsOrigin = null;
++        gridLabels = null;
++        gridDirty = drawerDirty = true;
++        if (sheetOpen) retargetGrid(snap);
++        else retarget(snap);
++    }
++
+     /** Swaps the lifted app with its neighbor; both slide from where they are to their new slots. */
+     private void shiftReorder(int dx) {
+         int i = shelfIndex, j = i + dx;
+@@ -2635,6 +2827,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     /** OK: drops the app where it is and saves the shelf's new order. */
+     private void dropReorder() {
+         if (!reordering) return;
++        if (reorderApps) {
++            dropAppsMove();
++            return;
++        }
+         reordering = false;
+         moveLift.target = 0;
+         boolean changed = false;
+@@ -2666,6 +2862,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
+     /** Back, or leaving the home screen: the original order comes back (sliding, unless `snap`). */
+     private void cancelReorder(boolean snap) {
+         if (!reordering && !reorderAnim) return;
++        if (reorderApps) {
++            cancelAppsMove(snap);
++            return;
++        }
+         if (reordering) {
+             reordering = false;
+             moveLift.target = 0;
+diff --git a/app/src/io/freemytv/Prefs.java b/app/src/io/freemytv/Prefs.java
+index d6a7747..fd22251 100644
+--- a/app/src/io/freemytv/Prefs.java
++++ b/app/src/io/freemytv/Prefs.java
+@@ -120,6 +120,46 @@ final class Prefs {
+         put("shelf", sb.toString());
+     }
+ 
++    // MARK: - All Apps (order and hidden apps)
++
++    private static List<String> csv(String v) {
++        List<String> out = new ArrayList<>();
++        for (String p : v.split(",")) if (!p.isEmpty() && !out.contains(p)) out.add(p);
++        return out;
++    }
++
++    private static void putCsv(String key, List<String> packages) {
++        StringBuilder sb = new StringBuilder();
++        for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
++        put(key, sb.toString());
++    }
++
++    /** The order the person gave "All Apps" (packages); apps not in it follow, by name. */
++    static List<String> appsOrder() {
++        return csv(sp().getString("appsOrder", ""));
++    }
++
++    static void setAppsOrder(List<String> packages) {
++        putCsv("appsOrder", packages);
++    }
++
++    /** Apps kept out of "All Apps" by the person (still installed). */
++    static List<String> appsHidden() {
++        return csv(sp().getString("appsHidden", ""));
++    }
++
++    static void hideApp(String pkg) {
++        List<String> hidden = appsHidden();
++        if (!hidden.contains(pkg)) hidden.add(pkg);
++        putCsv("appsHidden", hidden);
++    }
++
++    static void showApp(String pkg) {
++        List<String> hidden = appsHidden();
++        hidden.remove(pkg);
++        putCsv("appsHidden", hidden);
++    }
++
+     // MARK: - Remote buttons
+ 
+     private static String defaultApp(int keyCode) {
+diff --git a/app/src/io/freemytv/Recs.java b/app/src/io/freemytv/Recs.java
+index 12c68f8..3254445 100644
+--- a/app/src/io/freemytv/Recs.java
++++ b/app/src/io/freemytv/Recs.java
+@@ -35,17 +35,15 @@ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ 
+ /**
+- * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, via TMDB
+- * (an open movie database that knows what streams where in each country). At least 25 movies and 25 shows, renewed every 12 hours.
+- *
+- * <p>Which titles qualify: the ones TMDB lists on a known streaming service (Netflix, Prime Video, Disney+, Max, Apple
+- * TV...) in your country ({@code tmdb_region}). The service does NOT have to be installed on the TV:
++ * Home screen carousel, via TMDB (an open movie database). Three lists, renewed every 12 hours:
+  * <ul>
+- *   <li>{@link Pick#app} is the title's service (shown on the card, e.g. "Netflix");</li>
+- *   <li>{@link Pick#pkg} is that service's package, only when it is installed: it is what "Watch" opens, so a pick
+- *       with {@code pkg == null} is shown but can't be launched. If the title is on several services, an installed
+- *       one is preferred.</li>
++ *   <li>Explore: what's trending this week, movies and shows together;</li>
++ *   <li>Movies: the most popular movies;</li>
++ *   <li>Shows: the most popular shows.</li>
+  * </ul>
++ * Each list is a pool of the top titles (three pages), of which a different selection is taken every 12 hours (the
++ * order of the pool is kept), so the carousel doesn't show the same ones all day. {@link Pick#app} is the title's
++ * streaming service when TMDB knows one (only shown as text); OK on a title opens its trailer ({@link Pick#trailer}).
+  *
+  * <p>Each person uses their own free TMDB key (config.properties "tmdb_key", built into the app). It never goes to the
+  * log.
+@@ -69,11 +67,10 @@ final class Recs {
+     private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
+     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
+     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
+-    private static final int CACHE_VERSION = 7;
++    private static final int CACHE_VERSION = 8;
+ 
+-    /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
+-    private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
+-    private static final int TRENDING_PER_KIND = 10, TRENDING_CANDIDATES = 20;
++    /** Carousel: 30 movies, 30 shows, 40 for Explore, each taken from a pool of POOL_PAGES pages (20 titles each). */
++    private static final int PER_KIND = 30, EXPLORE_MAX = 40, POOL_PAGES = 3;
+         private static final int MAX_IMAGES_ON_DISK = 48;
+     
+     private static final int MORNING = 0, AFTERNOON = 1, NIGHT = 2;
+@@ -126,7 +123,9 @@ final class Recs {
+     private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);   // built and ready to draw (least recently drawn goes first)
+     private final Set<String> inFlight = new HashSet<>();   // picks whose details and image are being fetched
+     private final Set<String> pending = new HashSet<>();
+-    private volatile List<Pick> picks = new ArrayList<>();
++    private volatile List<Pick> picks = new ArrayList<>();           // every title of the three lists, once
++    private volatile Map<String, Pick> index = new HashMap<>();      // the same, by key
++    private volatile List<String> exploreKeys = new ArrayList<>(), movieKeys = new ArrayList<>(), showKeys = new ArrayList<>();
+     private volatile int period = -1;
+     private volatile long listAt;
+     private volatile boolean fetching;
+@@ -141,7 +140,11 @@ final class Recs {
+         if (cache.getInt("version", 0) != CACHE_VERSION) cache.edit().clear().putInt("version", CACHE_VERSION).apply();
+         try {
+             String saved = cache.getString("picks", null);
+-            if (saved != null) picks = parse(new JSONArray(saved));
++            if (saved != null) setPicks(parse(new JSONArray(saved)));
++            JSONObject lists = new JSONObject(cache.getString("lists", "{}"));
++            exploreKeys = keys(lists.optJSONArray("explore"));
++            movieKeys = keys(lists.optJSONArray("movie"));
++            showKeys = keys(lists.optJSONArray("tv"));
+             period = cache.getInt("period", -1);
+             listAt = cache.getLong("listAt", 0);
+             listLanguage = cache.getString("language", "");
+@@ -197,22 +200,32 @@ final class Recs {
+ 
+     // MARK: - What the screens ask for
+ 
+-    /**
+-     * The carousel of a tab: movies only ("movie"), shows only ("tv") or both alternating (null, Explore). At least 25
+-     * per kind, refreshed every 12 hours. A title whose details are already known must be on a known service in your
+-     * region (it doesn't need that service to be installed).
+-     */
++    /** The carousel of a tab: Explore (null: what's trending, movies and shows together), movies ("movie") or shows ("tv"). */
+     List<Pick> carousel(String kind) {
+         List<Pick> out = new ArrayList<>();
+         if (!hasKey(context)) return out;     // no TMDB key: no recommendations
+-        for (Pick p : picks) {
+-            boolean sameKind = kind == null || kind.equals(p.kind);
+-            if (sameKind && (!p.detailed || p.app != null)) out.add(p);
+-            if (kind == null && out.size() >= EXPLORE_MAX) break;
++        List<String> keys = kind == null ? exploreKeys : kind.equals("movie") ? movieKeys : showKeys;
++        Map<String, Pick> byKey = index;
++        for (String key : keys) {
++            Pick p = byKey.get(key);
++            if (p != null) out.add(p);
+         }
+         return out;
+     }
+ 
++    private void setPicks(List<Pick> list) {
++        Map<String, Pick> map = new HashMap<>();
++        for (Pick p : list) map.put(key(p), p);
++        picks = list;
++        index = map;
++    }
++
++    private static List<String> keys(JSONArray a) {
++        List<String> out = new ArrayList<>();
++        for (int i = 0; a != null && i < a.length(); i++) out.add(a.optString(i));
++        return out;
++    }
++
+     /**
+      * Details and image for these picks (what the carousel shows and what is next to it), one at a time in the
+      * background; the listeners hear when they are ready.
+@@ -278,7 +291,7 @@ final class Recs {
+         Set<String> franchises = new HashSet<>();
+         for (Pick p : wanted()) if (hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
+         for (Pick p : picks) {
+-            if (p.detailed && p.app != null && hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
++            if (p.detailed && hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
+         }
+         return out;
+     }
+@@ -340,7 +353,7 @@ final class Recs {
+ 
+     /** True when a pick still needs its details, or (if it has a service) its image. */
+     private boolean needsWork(Pick p) {
+-        return !p.detailed || (p.app != null && !hasImage(p));
++        return !p.detailed || !hasImage(p);
+     }
+ 
+     private boolean inBackoff(long now) {
+@@ -419,7 +432,7 @@ final class Recs {
+         for (Pick pick : list) {
+             try {
+                 if (!pick.detailed) fetchDetails(pick);
+-                if (pick.app != null) download(pick);
++                download(pick);
+             } catch (Exception e) {
+                 failures++;
+                 last = message(e);
+@@ -439,96 +452,83 @@ final class Recs {
+     // MARK: - TMDB: the list
+ 
+     /**
+-     * The list for this time of day: what's trending this week on a known service in your region, then (if there is
+-     * room) recent releases. Not limited to the streaming apps installed on this TV.
++     * The three lists: what's trending this week (Explore, movies and shows together), the most popular movies and the
++     * most popular shows. Each one is a pool of the top titles, and 12 hours later another selection is taken from it.
+      */
+     private void fetchList(int currentPeriod) throws IOException, JSONException {
+-        Map<Integer, String[]> services = regionServices();
+-        if (services.isEmpty()) throw new IOException("no known streaming service is listed on TMDB for " + REGION);
++        long window = System.currentTimeMillis() / LIST_EVERY;     // changes every 12 hours
++        boolean keepDetails = listLanguage.equals(Ui.language);
++        Map<String, Pick> old = keepDetails ? index : new HashMap<String, Pick>();
+ 
+-        List<Pick> list = new ArrayList<>();
+-        Set<String> seen = new HashSet<>();
+-        alternate(list, seen, kindList("movie", services), kindList("tv", services), 2 * PER_KIND);
+-        if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+-        picks = list;
++        List<Pick> trending = fetchPages("/trending/all/week", null);
++        if (trending.isEmpty()) throw new IOException("TMDB returned no recommendations");
++        List<Pick> movies = new ArrayList<>(), shows = new ArrayList<>();
++        try {
++            movies = fetchPages("/movie/popular?region=" + REGION, "movie");
++            shows = fetchPages("/tv/popular", "tv");
++        } catch (IOException | JSONException e) {
++            AppLog.w("recommendations, popular: " + message(e));   // Explore alone is still a good carousel
++        }
++
++        Map<String, Pick> all = new LinkedHashMap<>();
++        List<String> explore = register(sample(trending, EXPLORE_MAX, window * 3), all, old);
++        List<String> movie = register(sample(movies, PER_KIND, window * 3 + 1), all, old);
++        List<String> tv = register(sample(shows, PER_KIND, window * 3 + 2), all, old);
++        setPicks(new ArrayList<>(all.values()));
++        exploreKeys = explore;
++        movieKeys = movie;
++        showKeys = tv;
+         period = currentPeriod;
+         listAt = System.currentTimeMillis();
+         listLanguage = Ui.language;
+     }
+ 
+-    /**
+-     * Up to PER_KIND titles of one kind: what's trending this week on a known service first (their details say where),
+-     * then the most popular on the region's known services (the filter itself guarantees the service).
+-     */
+-    private List<Pick> kindList(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
++    /** The first POOL_PAGES pages of a TMDB list (kind null: the list says it per title: movies and shows only). */
++    private List<Pick> fetchPages(String path, String kind) throws IOException, JSONException {
+         List<Pick> out = new ArrayList<>();
+         Set<String> seen = new HashSet<>();
+-        for (Pick p : trending(kind)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
+-        for (int page = 1; page <= DISCOVER_PAGES && out.size() < PER_KIND; page++) {
++        for (int page = 1; page <= POOL_PAGES; page++) {
++            JSONArray results;
+             try {
+-                for (Pick p : popular(kind, services, page)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
++                results = get(path + (path.contains("?") ? "&" : "?") + "language=" + lang() + "&page=" + page).getJSONArray("results");
+             } catch (IOException | JSONException e) {
+-                // Optional extra: what we have is a good list.
+-                AppLog.w("recommendations, popular: " + message(e));
+-                break;
++                if (page == 1) throw e;
++                break;      // a shorter pool is fine
+             }
+-        }
+-        return out;
+-    }
+-
+-    /** TMDB's id → known service, for the streaming services listed in the region (installed on this TV or not). */
+-    private Map<Integer, String[]> regionServices() throws IOException, JSONException {
+-        Map<Integer, String[]> out = new HashMap<>();
+-        JSONArray providers = get("/watch/providers/movie?language=" + lang() + "&watch_region=" + REGION)
+-                .getJSONArray("results");
+-        for (int i = 0; i < providers.length(); i++) {
+-            JSONObject o = providers.getJSONObject(i);
+-            String[] s = service(o.optString("provider_name"));
+-            if (s != null) out.put(o.getInt("provider_id"), s);
+-        }
+-        return out;
+-    }
+-
+-    /**
+-     * What's trending this week ("movie" or "tv") that is on a known service in the region: the details say where, and
+-     * come back ready. Stops once it has enough.
+-     */
+-    private List<Pick> trending(String kind) throws IOException, JSONException {
+-        JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
+-        List<Pick> candidates = new ArrayList<>();
+-        for (int i = 0; i < hot.length() && i < TRENDING_CANDIDATES; i++) add(candidates, hot.getJSONObject(i), kind);
+-        List<Pick> out = new ArrayList<>();
+-        for (Pick pick : candidates) {
+-            if (out.size() >= TRENDING_PER_KIND) break;
+-            try {
+-                fetchDetails(pick);
+-            } catch (IOException | JSONException e) {
+-                continue;
++            for (int i = 0; i < results.length(); i++) {
++                JSONObject o = results.getJSONObject(i);
++                String k = kind != null ? kind : o.optString("media_type");
++                if (!k.equals("movie") && !k.equals("tv")) continue;
++                List<Pick> one = new ArrayList<>();
++                add(one, o, k);
++                if (!one.isEmpty() && seen.add(key(one.get(0)))) out.add(one.get(0));
+             }
+-            if (pick.app != null) out.add(pick);
+         }
+         return out;
+     }
+ 
+-    /** The most popular titles on the region's known services (a page of 20). Their details are fetched later. */
+-    private List<Pick> popular(String kind, Map<Integer, String[]> services, int page) throws IOException, JSONException {
+-        StringBuilder ids = new StringBuilder();
+-        for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
+-        JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
+-                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc&page=" + page
+-                + "&vote_count.gte=" + (kind.equals("movie") ? 200 : 100)
+-                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")).getJSONArray("results");
++    /** `n` of the pool, picked by this window's seed, in the pool's own order (most popular first). */
++    private static List<Pick> sample(List<Pick> pool, int n, long seed) {
++        if (pool.size() <= n) return new ArrayList<>(pool);
++        List<Integer> order = new ArrayList<>();
++        for (int i = 0; i < pool.size(); i++) order.add(i);
++        java.util.Collections.shuffle(order, new java.util.Random(seed));
++        List<Integer> chosen = new ArrayList<>(order.subList(0, n));
++        java.util.Collections.sort(chosen);
+         List<Pick> out = new ArrayList<>();
+-        for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
++        for (int i : chosen) out.add(pool.get(i));
+         return out;
+     }
+ 
+-    /** Movies and shows alternating, without repeats, up to `max` in total. */
+-    private static void alternate(List<Pick> out, Set<String> seen, List<Pick> a, List<Pick> b, int max) {
+-        for (int i = 0; i < Math.max(a.size(), b.size()) && out.size() < max; i++) {
+-            if (i < a.size() && seen.add(key(a.get(i)))) out.add(a.get(i));
+-            if (i < b.size() && out.size() < max && seen.add(key(b.get(i)))) out.add(b.get(i));
++    /** Adds the picks to `all` (a title that is already there, or was there before with its details, is reused); returns their keys. */
++    private static List<String> register(List<Pick> list, Map<String, Pick> all, Map<String, Pick> old) {
++        List<String> keys = new ArrayList<>();
++        for (Pick p : list) {
++            String k = key(p);
++            if (!all.containsKey(k)) all.put(k, old.containsKey(k) ? old.get(k) : p);
++            keys.add(k);
+         }
++        return keys;
+     }
+ 
+     private static void add(List<Pick> list, JSONObject o, String kind) {
+@@ -853,8 +853,13 @@ final class Recs {
+                         .put("trailer", p.trailer == null ? "" : p.trailer)
+                         .put("detailed", p.detailed));
+             }
++            JSONObject lists = new JSONObject()
++                    .put("explore", new JSONArray(exploreKeys))
++                    .put("movie", new JSONArray(movieKeys))
++                    .put("tv", new JSONArray(showKeys));
+             cache.edit()
+                     .putString("picks", a.toString())
++                    .putString("lists", lists.toString())
+                     .putInt("period", period)
+                     .putLong("listAt", listAt)
+                     .putString("language", listLanguage)
+diff --git a/app/src/io/freemytv/Russian.java b/app/src/io/freemytv/Russian.java
+index 1b5bcc6..1a126b7 100644
+--- a/app/src/io/freemytv/Russian.java
++++ b/app/src/io/freemytv/Russian.java
+@@ -35,6 +35,13 @@ final class Russian {
+             case ", position ": return ", место ";
+             case "Couldn't open ": return "Не удалось открыть ";
+             case "No trailer available for this title": return "Для этого фильма нет трейлера";
++            case "← → ↑ ↓ to move · OK to drop · Back to cancel": return "← → ↑ ↓ перемещение · OK — поставить · Назад — отмена";
++            case "Hide from All Apps": return "Скрыть из «Всех приложений»";
++            case "Hidden: ": return "Скрыто: ";
++            case "No hidden apps": return "Скрытых приложений нет";
++            case "Hidden apps (choose one to show it again)": return "Скрытые приложения (выберите, чтобы показать)";
++            case "Shown again: ": return "Снова показано: ";
++            case "Release OK to see the hidden apps": return "Отпустите OK, чтобы увидеть скрытые приложения";
+             case "Couldn't open the trailer": return "Не удалось открыть трейлер";
+             case " of ": return " из ";
+             case ", tab ": return ", вкладка ";

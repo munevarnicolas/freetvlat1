@@ -35,6 +35,13 @@ final class Russian {
             case ", position ": return ", место ";
             case "Couldn't open ": return "Не удалось открыть ";
             case "No trailer available for this title": return "Для этого фильма нет трейлера";
+            case "← → ↑ ↓ to move · OK to drop · Back to cancel": return "← → ↑ ↓ перемещение · OK — поставить · Назад — отмена";
+            case "Hide from All Apps": return "Скрыть из «Всех приложений»";
+            case "Hidden: ": return "Скрыто: ";
+            case "No hidden apps": return "Скрытых приложений нет";
+            case "Hidden apps (choose one to show it again)": return "Скрытые приложения (выберите, чтобы показать)";
+            case "Shown again: ": return "Снова показано: ";
+            case "Release OK to see the hidden apps": return "Отпустите OK, чтобы увидеть скрытые приложения";
             case "Couldn't open the trailer": return "Не удалось открыть трейлер";
             case " of ": return " из ";
             case ", tab ": return ", вкладка ";

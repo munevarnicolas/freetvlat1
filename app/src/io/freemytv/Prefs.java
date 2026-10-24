@@ -120,6 +120,46 @@ final class Prefs {
         put("shelf", sb.toString());
     }
 
+    // MARK: - All Apps (order and hidden apps)
+
+    private static List<String> csv(String v) {
+        List<String> out = new ArrayList<>();
+        for (String p : v.split(",")) if (!p.isEmpty() && !out.contains(p)) out.add(p);
+        return out;
+    }
+
+    private static void putCsv(String key, List<String> packages) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        put(key, sb.toString());
+    }
+
+    /** The order the person gave "All Apps" (packages); apps not in it follow, by name. */
+    static List<String> appsOrder() {
+        return csv(sp().getString("appsOrder", ""));
+    }
+
+    static void setAppsOrder(List<String> packages) {
+        putCsv("appsOrder", packages);
+    }
+
+    /** Apps kept out of "All Apps" by the person (still installed). */
+    static List<String> appsHidden() {
+        return csv(sp().getString("appsHidden", ""));
+    }
+
+    static void hideApp(String pkg) {
+        List<String> hidden = appsHidden();
+        if (!hidden.contains(pkg)) hidden.add(pkg);
+        putCsv("appsHidden", hidden);
+    }
+
+    static void showApp(String pkg) {
+        List<String> hidden = appsHidden();
+        hidden.remove(pkg);
+        putCsv("appsHidden", hidden);
+    }
+
     // MARK: - Remote buttons
 
     private static String defaultApp(int keyCode) {

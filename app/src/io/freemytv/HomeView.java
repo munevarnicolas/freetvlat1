@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
@@ -190,6 +191,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long HOLD_MS = 500, WIGGLE_MS = 300;
     private static final float LIFT_GROW = 0.08f, WIGGLE_DEG = 1.5f;
     private boolean reordering, reorderAnim, okHeld, holdArmed;
+    /** Moving an app in All Apps (the drawer's rows or the sheet): the list as it was, to put it back on Back. */
+    private boolean reorderApps;
+    private List<HomeApps.Item> appsOrigin;
     private int liftIndex = -1;
     private long reorderAt;
     private float wiggle;
@@ -214,7 +218,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         okHeld = true;                  // the release must not open the app
         iconPending = true;
         click.open();
-        showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
+        if (iconItem.kind == HomeApps.SETTINGS) {
+            showToast(Ui.tr("Solte o OK para ver os apps ocultos", "Release OK to see the hidden apps", "Suelta OK para ver las apps ocultas"));
+        } else {
+            showToast(Ui.tr("Solte o OK para mudar o ícone", "Release OK to change the icon", "Suelta OK para cambiar el icono"));
+        }
     }
 
     /** The app under the focus, if its icon can be changed. */
@@ -227,14 +235,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_APPS) {
             if (appIndex < others.size()) it = others.get(appIndex);
         }
+        if (it != null && it.kind == HomeApps.SETTINGS && others.contains(it)) return it;   // the Free My TV tile: the hidden apps
         return it != null && it.kind == HomeApps.APP && it.pkg != null ? it : null;
     }
 
     private void showIconDialog(final HomeApps.Item it) {
+        if (it.kind == HomeApps.SETTINGS) {
+            showHiddenApps();
+            return;
+        }
         final boolean own = HomeApps.hasOwnIcon(getContext(), it.pkg, it.key);
+        final boolean inAll = others.contains(it);     // an app of All Apps (not one on the shelf): it can be hidden
         final List<String> labels = new ArrayList<>();
         labels.add(Ui.tr("Escolher imagem…", "Choose an image…", "Elegir imagen…"));
         if (own) labels.add(Ui.tr("Restaurar o ícone original", "Restore the original icon", "Restaurar el icono original"));
+        if (inAll) labels.add(Ui.tr("Ocultar de Todos os Apps", "Hide from All Apps", "Ocultar de Todas las apps"));
         new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(Ui.tr("Ícone de ", "Icon for ", "Icono de ") + it.label)
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
@@ -248,11 +263,54 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                             HomeApps.pendingIconPkg = null;
                             showToast(Ui.tr("Nenhum app para escolher arquivos", "No app to pick files", "No hay app para elegir archivos"));
                         }
+                    } else if (inAll && which == labels.size() - 1) {
+                        hideApp(it);
                     } else {
                         HomeApps.removeOwnIcon(getContext(), it.pkg, it.key);
                         showToast(Ui.tr("Ícone original restaurado", "Original icon restored", "Icono original restaurado"));
                         reload();
                     }
+                })
+                .show();
+    }
+
+    /** Takes the app out of All Apps (it stays installed; the Free My TV tile brings it back). */
+    private void hideApp(HomeApps.Item it) {
+        Prefs.hideApp(it.pkg);
+        List<HomeApps.Item> rest = new ArrayList<>(others);
+        rest.remove(it);
+        setOthers(rest);
+        showToast(Ui.tr("Oculto: ", "Hidden: ", "Oculta: ") + it.label);
+    }
+
+    /** The apps the person hid: choosing one shows it in All Apps again. */
+    private void showHiddenApps() {
+        final List<String> hidden = Prefs.appsHidden();
+        PackageManager pm = getContext().getPackageManager();
+        final List<String> packages = new ArrayList<>(), labels = new ArrayList<>();
+        for (String pkg : hidden) {
+            try {
+                labels.add(String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0))));
+                packages.add(pkg);
+            } catch (PackageManager.NameNotFoundException e) {
+                Prefs.showApp(pkg);     // uninstalled since: nothing to show
+            }
+        }
+        if (packages.isEmpty()) {
+            showToast(Ui.tr("Nenhum app oculto", "No hidden apps", "No hay apps ocultas"));
+            return;
+        }
+        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(Ui.tr("Apps ocultos (escolha um para mostrar)", "Hidden apps (choose one to show it again)",
+                        "Apps ocultas (elige una para mostrarla)"))
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    Prefs.showApp(packages.get(which));
+                    showToast(Ui.tr("De volta: ", "Shown again: ", "Visible otra vez: ") + labels.get(which));
+                    final Context c = getContext().getApplicationContext();
+                    LOADER.execute(() -> {
+                        final List<HomeApps.Item> o = HomeApps.others(c);
+                        handler.post(() -> setOthers(o));
+                    });
                 })
                 .show();
     }
@@ -1059,7 +1117,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle.setColor(tone(L_INK, WHITE));
         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
-        lInfo.setColor(tone(L_FAINT, 0xB8FFFFFF));
+        lInfo.setColor(tone(0xFF48484A, 0xE6FFFFFF));   // firmer than the faint gray: easy to read
         lTip.setColor(tone(L_INK, WHITE));
         lDate.setColor(tone(L_DIM, 0xFF98989D));
         lClock.setColor(tone(L_INK, WHITE));
@@ -1747,7 +1805,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float f = appFocus[i].value;
         RectF base = appRects[i];
         // No name under the icon (the icons are the apps' own art, or a picture you chose); TalkBack still reads it.
-        drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, f, 0.08f);
+        boolean lifted = reorderApps && !sheetOpen && i == appIndex;
+        drawCard(c, others.get(i).tile, base, APPS_RADIUS * k, lifted ? 1 : f, lifted ? 0.2f : 0.08f);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -2052,7 +2111,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             float x = left + col * (GRID_W + GRID_GAP) * k;
             gridCell.set(x, y, x + GRID_W * k, y + GRID_H * k);
             float f = gridFocus[i].value;
-            drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, f, 0.08f);
+            boolean lifted = reorderApps && sheetOpen && i == gridIndex;
+            drawCard(c, others.get(i).tile, gridCell, GRID_RADIUS * k, lifted ? 1 : f, lifted ? 0.2f : 0.08f);
             if (sheetOpen && i == gridIndex) focusedCell.set(cell);
             gridLabel.setColor(blend(0x99FFFFFF, 0xFFFFFFFF, Ui.clamp(f)));
             c.drawText(gridLabels[i], gridCell.centerX(), gridCell.bottom + (40 + 6 * f) * k, gridLabel);
@@ -2537,7 +2597,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // MARK: - Moving apps on the shelf
 
+    /** An app of All Apps (the sheet, or the drawer's rows) is focused: it can be moved. */
+    private boolean canReorderApps() {
+        if (!sheetOpen && zone != Z_APPS) return false;
+        int i = sheetOpen ? gridIndex : appIndex;
+        return others.size() > 2 && i < others.size() && others.get(i).kind == HomeApps.APP && others.get(i).pkg != null;
+    }
+
     private boolean canReorder() {
+        if (canReorderApps()) return true;
         if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2) return false;
         HomeApps.Item it = shelf.get(shelfIndex);
         return it.kind == HomeApps.APP && it.pkg != null;
@@ -2547,6 +2615,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(holdStart);
         holdArmed = false;
         if (reordering || !canReorder()) return;
+        if (canReorderApps()) {
+            startAppsMove();
+            return;
+        }
         wake();
         reordering = reorderAnim = okHeld = true;
         reorderOrigin = new ArrayList<>(shelf);
@@ -2561,6 +2633,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Keys while moving an app: nothing else on the home screen gets them (system keys still go to the system). */
     private boolean reorderKey(KeyEvent e, boolean down) {
+        if (reorderApps) return appsMoveKey(e, down);
         switch (e.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
@@ -2604,6 +2677,125 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    private void startAppsMove() {
+        wake();
+        reordering = reorderApps = okHeld = true;
+        appsOrigin = new ArrayList<>(others);
+        click.open();
+        showToast(Ui.tr("← → ↑ ↓ para mover · OK para soltar · Voltar para cancelar",
+                "← → ↑ ↓ to move · OK to drop · Back to cancel", "← → ↑ ↓ para mover · OK para soltar · Atrás para cancelar"));
+        gridDirty = drawerDirty = true;
+    }
+
+    /** Keys while moving an app of All Apps: the arrows move it, OK drops it, Back puts everything back. */
+    private boolean appsMoveKey(KeyEvent e, boolean down) {
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) {
+                    handler.removeCallbacks(iconHold);     // moving the app: no icon menu
+                    iconItem = null;
+                    int code = e.getKeyCode();
+                    shiftApp(code == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : code == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : 0,
+                            code == KeyEvent.KEYCODE_DPAD_UP ? -1 : code == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : 0);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down && e.getRepeatCount() == 0) {
+                    handler.removeCallbacks(iconHold);
+                    iconItem = null;
+                    okDown = okHeld = false;
+                    dropReorder();
+                } else if (!down) {
+                    handler.removeCallbacks(iconHold);
+                    iconItem = null;
+                    okDown = okHeld = false;
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (down) {
+                    if (e.getRepeatCount() == 0) backDown = true;
+                } else {
+                    if (backDown && !e.isCanceled()) {
+                        cancelReorder(false);
+                        click.move();
+                    }
+                    backDown = false;
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** The last app that can be moved: the Free My TV tile stays at the end. */
+    private int lastMovable() {
+        int last = others.size() - 1;
+        while (last > 0 && others.get(last).kind != HomeApps.APP) last--;
+        return last;
+    }
+
+    /** Moves the lifted app one place (← →) or one row (↑ ↓); the apps in between shift. */
+    private void shiftApp(int dx, int dy) {
+        int cols = sheetOpen ? COLUMNS : APPS_COLS;
+        int i = sheetOpen ? gridIndex : appIndex, last = lastMovable();
+        int j = dx != 0 ? i + dx : i + dy * cols;
+        if (j < 0 || (dx != 0 && j / cols != i / cols)) return;
+        if (j > last) {
+            if (dy <= 0 || i == last) return;
+            j = last;       // the last row is shorter
+        }
+        if (j == i) return;
+        HomeApps.Item it = others.remove(i);
+        others.add(j, it);
+        gridLabels = null;
+        gridDirty = drawerDirty = true;
+        if (sheetOpen) {
+            gridIndex = j;
+            retargetGrid(false);
+        } else {
+            appIndex = j;
+            retarget(false);
+        }
+        wake();
+        click.move();
+    }
+
+    /** OK: drops the app where it is and saves the order of All Apps. */
+    private void dropAppsMove() {
+        reordering = reorderApps = false;
+        click.open();
+        boolean changed = appsOrigin == null || !others.equals(appsOrigin);
+        appsOrigin = null;
+        gridDirty = drawerDirty = true;
+        if (!changed) return;
+        List<String> order = new ArrayList<>();
+        for (HomeApps.Item it : others) if (it.kind == HomeApps.APP && it.pkg != null) order.add(it.pkg);
+        Prefs.setAppsOrder(order);
+    }
+
+    /** Back (or leaving): All Apps as it was before the move. */
+    private void cancelAppsMove(boolean snap) {
+        reordering = reorderApps = false;
+        if (appsOrigin != null && appsOrigin.size() == others.size()) {
+            HomeApps.Item lifted = others.get(sheetOpen ? gridIndex : appIndex);
+            others.clear();
+            others.addAll(appsOrigin);
+            int at = Math.max(0, others.indexOf(lifted));
+            if (sheetOpen) gridIndex = at;
+            else appIndex = at;
+        }
+        appsOrigin = null;
+        gridLabels = null;
+        gridDirty = drawerDirty = true;
+        if (sheetOpen) retargetGrid(snap);
+        else retarget(snap);
+    }
+
     /** Swaps the lifted app with its neighbor; both slide from where they are to their new slots. */
     private void shiftReorder(int dx) {
         int i = shelfIndex, j = i + dx;
@@ -2635,6 +2827,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** OK: drops the app where it is and saves the shelf's new order. */
     private void dropReorder() {
         if (!reordering) return;
+        if (reorderApps) {
+            dropAppsMove();
+            return;
+        }
         reordering = false;
         moveLift.target = 0;
         boolean changed = false;
@@ -2666,6 +2862,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Back, or leaving the home screen: the original order comes back (sliding, unless `snap`). */
     private void cancelReorder(boolean snap) {
         if (!reordering && !reorderAnim) return;
+        if (reorderApps) {
+            cancelAppsMove(snap);
+            return;
+        }
         if (reordering) {
             reordering = false;
             moveLift.target = 0;

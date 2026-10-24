@@ -571,6 +571,7 @@ final class HomeApps {
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
+        skip.addAll(Prefs.appsHidden());       // the ones the person hid from All Apps
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         List<Item> items = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -586,7 +587,15 @@ final class HomeApps {
             it.tile = own != null ? own : appTile(c, null, pkg, 0);
             items.add(it);
         }
-        Collections.sort(items, (a, b) -> a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT)));
+        // The person's own order first (moved with OK held); the rest by name.
+        final List<String> order = Prefs.appsOrder();
+        Collections.sort(items, (a, b) -> {
+            int ia = order.indexOf(a.pkg), ib = order.indexOf(b.pkg);
+            if (ia < 0) ia = Integer.MAX_VALUE;
+            if (ib < 0) ib = Integer.MAX_VALUE;
+            if (ia != ib) return Integer.compare(ia, ib);
+            return a.label.toLowerCase(Locale.ROOT).compareTo(b.label.toLowerCase(Locale.ROOT));
+        });
         synchronized (HomeApps.class) {
             TILES.keySet().removeIf(k -> k.contains(".") && !seen.contains(k));
         }

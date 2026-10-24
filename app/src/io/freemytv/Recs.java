@@ -35,17 +35,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Home screen picks ("This morning / afternoon / tonight"): what's trending this week plus recent releases, via TMDB
- * (an open movie database that knows what streams where in each country). At least 25 movies and 25 shows, renewed every 12 hours.
- *
- * <p>Which titles qualify: the ones TMDB lists on a known streaming service (Netflix, Prime Video, Disney+, Max, Apple
- * TV...) in your country ({@code tmdb_region}). The service does NOT have to be installed on the TV:
+ * Home screen carousel, via TMDB (an open movie database). Three lists, renewed every 12 hours:
  * <ul>
- *   <li>{@link Pick#app} is the title's service (shown on the card, e.g. "Netflix");</li>
- *   <li>{@link Pick#pkg} is that service's package, only when it is installed: it is what "Watch" opens, so a pick
- *       with {@code pkg == null} is shown but can't be launched. If the title is on several services, an installed
- *       one is preferred.</li>
+ *   <li>Explore: what's trending this week, movies and shows together;</li>
+ *   <li>Movies: the most popular movies;</li>
+ *   <li>Shows: the most popular shows.</li>
  * </ul>
+ * Each list is a pool of the top titles (three pages), of which a different selection is taken every 12 hours (the
+ * order of the pool is kept), so the carousel doesn't show the same ones all day. {@link Pick#app} is the title's
+ * streaming service when TMDB knows one (only shown as text); OK on a title opens its trailer ({@link Pick#trailer}).
  *
  * <p>Each person uses their own free TMDB key (config.properties "tmdb_key", built into the app). It never goes to the
  * log.
@@ -69,11 +67,10 @@ final class Recs {
     private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 7;
+    private static final int CACHE_VERSION = 8;
 
-    /** Carousel: at least 25 movies and 25 shows (30 asked for), the Explore tab alternates both (up to EXPLORE_MAX). */
-    private static final int PER_KIND = 30, EXPLORE_MAX = 40, DISCOVER_PAGES = 3;
-    private static final int TRENDING_PER_KIND = 10, TRENDING_CANDIDATES = 20;
+    /** Carousel: 30 movies, 30 shows, 40 for Explore, each taken from a pool of POOL_PAGES pages (20 titles each). */
+    private static final int PER_KIND = 30, EXPLORE_MAX = 40, POOL_PAGES = 3;
         private static final int MAX_IMAGES_ON_DISK = 48;
     
     private static final int MORNING = 0, AFTERNOON = 1, NIGHT = 2;
@@ -126,7 +123,9 @@ final class Recs {
     private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);   // built and ready to draw (least recently drawn goes first)
     private final Set<String> inFlight = new HashSet<>();   // picks whose details and image are being fetched
     private final Set<String> pending = new HashSet<>();
-    private volatile List<Pick> picks = new ArrayList<>();
+    private volatile List<Pick> picks = new ArrayList<>();           // every title of the three lists, once
+    private volatile Map<String, Pick> index = new HashMap<>();      // the same, by key
+    private volatile List<String> exploreKeys = new ArrayList<>(), movieKeys = new ArrayList<>(), showKeys = new ArrayList<>();
     private volatile int period = -1;
     private volatile long listAt;
     private volatile boolean fetching;
@@ -141,7 +140,11 @@ final class Recs {
         if (cache.getInt("version", 0) != CACHE_VERSION) cache.edit().clear().putInt("version", CACHE_VERSION).apply();
         try {
             String saved = cache.getString("picks", null);
-            if (saved != null) picks = parse(new JSONArray(saved));
+            if (saved != null) setPicks(parse(new JSONArray(saved)));
+            JSONObject lists = new JSONObject(cache.getString("lists", "{}"));
+            exploreKeys = keys(lists.optJSONArray("explore"));
+            movieKeys = keys(lists.optJSONArray("movie"));
+            showKeys = keys(lists.optJSONArray("tv"));
             period = cache.getInt("period", -1);
             listAt = cache.getLong("listAt", 0);
             listLanguage = cache.getString("language", "");
@@ -197,19 +200,29 @@ final class Recs {
 
     // MARK: - What the screens ask for
 
-    /**
-     * The carousel of a tab: movies only ("movie"), shows only ("tv") or both alternating (null, Explore). At least 25
-     * per kind, refreshed every 12 hours. A title whose details are already known must be on a known service in your
-     * region (it doesn't need that service to be installed).
-     */
+    /** The carousel of a tab: Explore (null: what's trending, movies and shows together), movies ("movie") or shows ("tv"). */
     List<Pick> carousel(String kind) {
         List<Pick> out = new ArrayList<>();
         if (!hasKey(context)) return out;     // no TMDB key: no recommendations
-        for (Pick p : picks) {
-            boolean sameKind = kind == null || kind.equals(p.kind);
-            if (sameKind && (!p.detailed || p.app != null)) out.add(p);
-            if (kind == null && out.size() >= EXPLORE_MAX) break;
+        List<String> keys = kind == null ? exploreKeys : kind.equals("movie") ? movieKeys : showKeys;
+        Map<String, Pick> byKey = index;
+        for (String key : keys) {
+            Pick p = byKey.get(key);
+            if (p != null) out.add(p);
         }
+        return out;
+    }
+
+    private void setPicks(List<Pick> list) {
+        Map<String, Pick> map = new HashMap<>();
+        for (Pick p : list) map.put(key(p), p);
+        picks = list;
+        index = map;
+    }
+
+    private static List<String> keys(JSONArray a) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; a != null && i < a.length(); i++) out.add(a.optString(i));
         return out;
     }
 
@@ -278,7 +291,7 @@ final class Recs {
         Set<String> franchises = new HashSet<>();
         for (Pick p : wanted()) if (hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
         for (Pick p : picks) {
-            if (p.detailed && p.app != null && hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
+            if (p.detailed && hasImage(p) && franchises.add(franchise(p.title))) out.add(p);
         }
         return out;
     }
@@ -340,7 +353,7 @@ final class Recs {
 
     /** True when a pick still needs its details, or (if it has a service) its image. */
     private boolean needsWork(Pick p) {
-        return !p.detailed || (p.app != null && !hasImage(p));
+        return !p.detailed || !hasImage(p);
     }
 
     private boolean inBackoff(long now) {
@@ -419,7 +432,7 @@ final class Recs {
         for (Pick pick : list) {
             try {
                 if (!pick.detailed) fetchDetails(pick);
-                if (pick.app != null) download(pick);
+                download(pick);
             } catch (Exception e) {
                 failures++;
                 last = message(e);
@@ -439,96 +452,83 @@ final class Recs {
     // MARK: - TMDB: the list
 
     /**
-     * The list for this time of day: what's trending this week on a known service in your region, then (if there is
-     * room) recent releases. Not limited to the streaming apps installed on this TV.
+     * The three lists: what's trending this week (Explore, movies and shows together), the most popular movies and the
+     * most popular shows. Each one is a pool of the top titles, and 12 hours later another selection is taken from it.
      */
     private void fetchList(int currentPeriod) throws IOException, JSONException {
-        Map<Integer, String[]> services = regionServices();
-        if (services.isEmpty()) throw new IOException("no known streaming service is listed on TMDB for " + REGION);
+        long window = System.currentTimeMillis() / LIST_EVERY;     // changes every 12 hours
+        boolean keepDetails = listLanguage.equals(Ui.language);
+        Map<String, Pick> old = keepDetails ? index : new HashMap<String, Pick>();
 
-        List<Pick> list = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        alternate(list, seen, kindList("movie", services), kindList("tv", services), 2 * PER_KIND);
-        if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
-        picks = list;
+        List<Pick> trending = fetchPages("/trending/all/week", null);
+        if (trending.isEmpty()) throw new IOException("TMDB returned no recommendations");
+        List<Pick> movies = new ArrayList<>(), shows = new ArrayList<>();
+        try {
+            movies = fetchPages("/movie/popular?region=" + REGION, "movie");
+            shows = fetchPages("/tv/popular", "tv");
+        } catch (IOException | JSONException e) {
+            AppLog.w("recommendations, popular: " + message(e));   // Explore alone is still a good carousel
+        }
+
+        Map<String, Pick> all = new LinkedHashMap<>();
+        List<String> explore = register(sample(trending, EXPLORE_MAX, window * 3), all, old);
+        List<String> movie = register(sample(movies, PER_KIND, window * 3 + 1), all, old);
+        List<String> tv = register(sample(shows, PER_KIND, window * 3 + 2), all, old);
+        setPicks(new ArrayList<>(all.values()));
+        exploreKeys = explore;
+        movieKeys = movie;
+        showKeys = tv;
         period = currentPeriod;
         listAt = System.currentTimeMillis();
         listLanguage = Ui.language;
     }
 
-    /**
-     * Up to PER_KIND titles of one kind: what's trending this week on a known service first (their details say where),
-     * then the most popular on the region's known services (the filter itself guarantees the service).
-     */
-    private List<Pick> kindList(String kind, Map<Integer, String[]> services) throws IOException, JSONException {
+    /** The first POOL_PAGES pages of a TMDB list (kind null: the list says it per title: movies and shows only). */
+    private List<Pick> fetchPages(String path, String kind) throws IOException, JSONException {
         List<Pick> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (Pick p : trending(kind)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
-        for (int page = 1; page <= DISCOVER_PAGES && out.size() < PER_KIND; page++) {
+        for (int page = 1; page <= POOL_PAGES; page++) {
+            JSONArray results;
             try {
-                for (Pick p : popular(kind, services, page)) if (out.size() < PER_KIND && seen.add(key(p))) out.add(p);
+                results = get(path + (path.contains("?") ? "&" : "?") + "language=" + lang() + "&page=" + page).getJSONArray("results");
             } catch (IOException | JSONException e) {
-                // Optional extra: what we have is a good list.
-                AppLog.w("recommendations, popular: " + message(e));
-                break;
+                if (page == 1) throw e;
+                break;      // a shorter pool is fine
+            }
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject o = results.getJSONObject(i);
+                String k = kind != null ? kind : o.optString("media_type");
+                if (!k.equals("movie") && !k.equals("tv")) continue;
+                List<Pick> one = new ArrayList<>();
+                add(one, o, k);
+                if (!one.isEmpty() && seen.add(key(one.get(0)))) out.add(one.get(0));
             }
         }
         return out;
     }
 
-    /** TMDB's id → known service, for the streaming services listed in the region (installed on this TV or not). */
-    private Map<Integer, String[]> regionServices() throws IOException, JSONException {
-        Map<Integer, String[]> out = new HashMap<>();
-        JSONArray providers = get("/watch/providers/movie?language=" + lang() + "&watch_region=" + REGION)
-                .getJSONArray("results");
-        for (int i = 0; i < providers.length(); i++) {
-            JSONObject o = providers.getJSONObject(i);
-            String[] s = service(o.optString("provider_name"));
-            if (s != null) out.put(o.getInt("provider_id"), s);
-        }
-        return out;
-    }
-
-    /**
-     * What's trending this week ("movie" or "tv") that is on a known service in the region: the details say where, and
-     * come back ready. Stops once it has enough.
-     */
-    private List<Pick> trending(String kind) throws IOException, JSONException {
-        JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
-        List<Pick> candidates = new ArrayList<>();
-        for (int i = 0; i < hot.length() && i < TRENDING_CANDIDATES; i++) add(candidates, hot.getJSONObject(i), kind);
+    /** `n` of the pool, picked by this window's seed, in the pool's own order (most popular first). */
+    private static List<Pick> sample(List<Pick> pool, int n, long seed) {
+        if (pool.size() <= n) return new ArrayList<>(pool);
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < pool.size(); i++) order.add(i);
+        java.util.Collections.shuffle(order, new java.util.Random(seed));
+        List<Integer> chosen = new ArrayList<>(order.subList(0, n));
+        java.util.Collections.sort(chosen);
         List<Pick> out = new ArrayList<>();
-        for (Pick pick : candidates) {
-            if (out.size() >= TRENDING_PER_KIND) break;
-            try {
-                fetchDetails(pick);
-            } catch (IOException | JSONException e) {
-                continue;
-            }
-            if (pick.app != null) out.add(pick);
-        }
+        for (int i : chosen) out.add(pool.get(i));
         return out;
     }
 
-    /** The most popular titles on the region's known services (a page of 20). Their details are fetched later. */
-    private List<Pick> popular(String kind, Map<Integer, String[]> services, int page) throws IOException, JSONException {
-        StringBuilder ids = new StringBuilder();
-        for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
-                + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc&page=" + page
-                + "&vote_count.gte=" + (kind.equals("movie") ? 200 : 100)
-                + "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")).getJSONArray("results");
-        List<Pick> out = new ArrayList<>();
-        for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
-        return out;
-    }
-
-    /** Movies and shows alternating, without repeats, up to `max` in total. */
-    private static void alternate(List<Pick> out, Set<String> seen, List<Pick> a, List<Pick> b, int max) {
-        for (int i = 0; i < Math.max(a.size(), b.size()) && out.size() < max; i++) {
-            if (i < a.size() && seen.add(key(a.get(i)))) out.add(a.get(i));
-            if (i < b.size() && out.size() < max && seen.add(key(b.get(i)))) out.add(b.get(i));
+    /** Adds the picks to `all` (a title that is already there, or was there before with its details, is reused); returns their keys. */
+    private static List<String> register(List<Pick> list, Map<String, Pick> all, Map<String, Pick> old) {
+        List<String> keys = new ArrayList<>();
+        for (Pick p : list) {
+            String k = key(p);
+            if (!all.containsKey(k)) all.put(k, old.containsKey(k) ? old.get(k) : p);
+            keys.add(k);
         }
+        return keys;
     }
 
     private static void add(List<Pick> list, JSONObject o, String kind) {
@@ -853,8 +853,13 @@ final class Recs {
                         .put("trailer", p.trailer == null ? "" : p.trailer)
                         .put("detailed", p.detailed));
             }
+            JSONObject lists = new JSONObject()
+                    .put("explore", new JSONArray(exploreKeys))
+                    .put("movie", new JSONArray(movieKeys))
+                    .put("tv", new JSONArray(showKeys));
             cache.edit()
                     .putString("picks", a.toString())
+                    .putString("lists", lists.toString())
                     .putInt("period", period)
                     .putLong("listAt", listAt)
                     .putString("language", listLanguage)
