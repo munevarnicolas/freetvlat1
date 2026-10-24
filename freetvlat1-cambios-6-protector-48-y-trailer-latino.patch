@@ -1,0 +1,146 @@
+diff --git a/app/src/io/freemytv/Recs.java b/app/src/io/freemytv/Recs.java
+index 3254445..e99d531 100644
+--- a/app/src/io/freemytv/Recs.java
++++ b/app/src/io/freemytv/Recs.java
+@@ -67,11 +67,15 @@ final class Recs {
+     private static final long LIST_EVERY = 12 * 3600_000L;   // the lists are fetched again every 12 hours
+     private static final long RETRY_AFTER_FAILURE = 10 * 60_000L;
+     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
+-    private static final int CACHE_VERSION = 8;
++    private static final int CACHE_VERSION = 9;
+ 
+     /** Carousel: 30 movies, 30 shows, 40 for Explore, each taken from a pool of POOL_PAGES pages (20 titles each). */
+     private static final int PER_KIND = 30, EXPLORE_MAX = 40, POOL_PAGES = 3;
+-        private static final int MAX_IMAGES_ON_DISK = 48;
++        /** The screensaver's photos: downloading stops here. The disk may hold a few more (the ones the home screen asks for). */
++    private static final int MAX_IMAGES_ON_DISK = 48, DISK_SLACK = 12;
++    /** Countries whose Spanish counts as Latin American (the trailers' language is searched in it first). */
++    private static final Set<String> LATAM = new HashSet<>(Arrays.asList("MX", "CO", "AR", "CL", "PE", "VE", "UY", "EC", "CR",
++            "PA", "DO", "PR", "GT", "BO", "PY", "SV", "HN", "NI", "CU", "419"));
+     
+     private static final int MORNING = 0, AFTERNOON = 1, NIGHT = 2;
+     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
+@@ -397,13 +401,27 @@ final class Recs {
+     }
+ 
+     /**
+-     * While the screensaver is showing: details and image for every pick in the list (not just this hour's), one at a
+-     * time in the background, so it has more photos. Not used otherwise.
++     * While the screensaver is showing: details and image for the carousel's titles, up to MAX_IMAGES_ON_DISK photos
++     * in all (then it stops downloading), one at a time in the background. The three lists take turns (Explore, Movies,
++     * Shows), so the photos are a mix of all of them. When the lists are renewed (every 12 hours), the photos of the
++     * titles that left are deleted and the new ones come in the same way. Not used otherwise.
+      */
+     void prefetchAll() {
+         if (!hasKey(context) || fetching || inBackoff(System.currentTimeMillis())) return;
+         final List<Pick> todo = new ArrayList<>();
+-        for (Pick p : picks) if (needsWork(p) && todo.size() < 30) todo.add(p);
++        int room = MAX_IMAGES_ON_DISK;
++        List<Pick> order = interleaved();
++        for (Pick p : order) if (hasImage(p)) room--;
++        for (Pick p : order) {
++            if (todo.size() >= 30) break;
++            boolean image = hasImage(p);
++            if (image && p.detailed) continue;
++            if (!image) {
++                if (room <= 0) continue;     // enough photos: a title without one stays out of the screensaver
++                room--;
++            }
++            todo.add(p);
++        }
+         if (todo.isEmpty()) return;
+         fetching = true;
+         io.execute(() -> {
+@@ -422,6 +440,31 @@ final class Recs {
+         });
+     }
+ 
++    /** The titles of the three lists taking turns (Explore, Movies, Shows), without repeats. */
++    private List<Pick> interleaved() {
++        List<Pick> explore = carousel(null), movies = carousel("movie"), shows = carousel("tv");
++        List<Pick> out = new ArrayList<>();
++        Set<String> seen = new HashSet<>();
++        for (int i = 0; i < Math.max(explore.size(), Math.max(movies.size(), shows.size())); i++) {
++            if (i < explore.size() && seen.add(key(explore.get(i)))) out.add(explore.get(i));
++            if (i < movies.size() && seen.add(key(movies.get(i)))) out.add(movies.get(i));
++            if (i < shows.size() && seen.add(key(shows.get(i)))) out.add(shows.get(i));
++        }
++        return out;
++    }
++
++    /** After the lists are renewed: deletes the photos of the titles that are no longer in them. */
++    private void removeStaleImages() {
++        File[] files = new File(context.getCacheDir(), "recs").listFiles((d, name) -> !name.endsWith(".part"));
++        if (files == null) return;
++        Set<String> keep = new HashSet<>();
++        for (Pick p : picks) if (p.backdrop != null) keep.add(p.backdrop.replace("/", ""));
++        for (File f : files) {
++            //noinspection ResultOfMethodCallIgnored
++            if (!keep.contains(f.getName())) f.delete();
++        }
++    }
++
+     /**
+      * Details and image for each pick. One failing title (gone from TMDB, an image that won't download) doesn't stop
+      * the others. Returns the last error if every one of them failed, otherwise null.
+@@ -481,6 +524,7 @@ final class Recs {
+         period = currentPeriod;
+         listAt = System.currentTimeMillis();
+         listLanguage = Ui.language;
++        removeStaleImages();
+     }
+ 
+     /** The first POOL_PAGES pages of a TMDB list (kind null: the list says it per title: movies and shows only). */
+@@ -548,7 +592,7 @@ final class Recs {
+     private void fetchDetails(Pick p) throws IOException, JSONException {
+         JSONObject o = get("/" + p.kind + "/" + p.id + "?language=" + lang()
+                 + "&append_to_response=watch/providers,images,videos&include_image_language=null," + Ui.language + ",en"
+-                + "&include_video_language=" + Ui.language + ",en");
++                + "&include_video_language=es,en," + Ui.language);
+         p.title = title(p, o);
+         p.overview = o.optString("overview", "");
+         p.poster = o.optString("poster_path", "");
+@@ -579,7 +623,10 @@ final class Recs {
+         p.detailed = true;
+     }
+ 
+-    /** The best YouTube trailer: a trailer over a teaser, an official one, one in the TV's language. Null if none. */
++    /**
++     * The best YouTube trailer. Latin American Spanish first, whatever the TV's language; then the TV's language, then
++     * any Spanish, then English. In each of those a trailer beats a teaser, and an official one beats the rest. Null if none.
++     */
+     private static String bestTrailer(JSONObject videos) {
+         JSONArray list = videos == null ? null : videos.optJSONArray("results");
+         String best = null;
+@@ -588,10 +635,15 @@ final class Recs {
+             JSONObject v = list.optJSONObject(i);
+             if (v == null || !"YouTube".equals(v.optString("site")) || v.optString("key").isEmpty()) continue;
+             String type = v.optString("type");
+-            int score = "Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 1 : 0;
+-            if (score == 0) continue;
+-            if (v.optBoolean("official")) score++;
+-            if (Ui.language.equals(v.optString("iso_639_1"))) score += 2;
++            int kind = "Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 1 : 0;
++            if (kind == 0) continue;
++            String language = v.optString("iso_639_1"), country = v.optString("iso_3166_1").toUpperCase(Locale.ROOT);
++            int tier = "es".equals(language) && LATAM.contains(country) ? 5
++                    : "es".equals(language) && country.isEmpty() ? 4      // Spanish with no country: most of them are Latin
++                    : Ui.language.equals(language) ? 3
++                    : "es".equals(language) ? 2
++                    : "en".equals(language) ? 1 : 0;
++            int score = tier * 10 + kind + (v.optBoolean("official") ? 1 : 0);
+             if (score > bestScore) {
+                 bestScore = score;
+                 best = v.optString("key");
+@@ -825,9 +877,9 @@ final class Recs {
+             if (parts[i].lastModified() < stale) parts[i].delete();
+         }
+         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
+-        if (files == null || files.length <= MAX_IMAGES_ON_DISK) return;
++        if (files == null || files.length <= MAX_IMAGES_ON_DISK + DISK_SLACK) return;
+         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+-        for (int i = 0; i < files.length - MAX_IMAGES_ON_DISK; i++) {
++        for (int i = 0; i < files.length - MAX_IMAGES_ON_DISK - DISK_SLACK; i++) {
+             //noinspection ResultOfMethodCallIgnored
+             files[i].delete();
+         }
